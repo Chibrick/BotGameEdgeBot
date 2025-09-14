@@ -19,6 +19,8 @@ from aiohttp import web
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
 
+user_choices = {}  # { user_id: {"bk": "", "expert": ""} }
+
 # ссылки на экспертов
 Expert_LINKS = {
     "Football": "https://t.me/assistantafrica",
@@ -119,11 +121,13 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
             user.first_name or "", # D
             user.last_name or "",  # E
             event_type,            # F
-            content[:100]          # G
+            content[:100],         # G
+            "",                         # H phone
+            ""                          # I location
         ]
         
         # Записываем точно в нужные ячейки
-        range_name = f"A{next_row}:G{next_row}"
+        range_name = f"A{next_row}:I{next_row}"
         
         # Правильный способ: создаем функцию-обертку
         def update_sheet():
@@ -221,9 +225,9 @@ async def why_free(callback: types.CallbackQuery):
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
-        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
-        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", url=BK_LINKS["Pari"])],
+        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", callback_data="bk_Fonbet")],
+        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="1xbet")],
+        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="Pari")],
         [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
     ])
     await safe_edit_message(
@@ -235,12 +239,26 @@ async def step_bk(callback: types.CallbackQuery):
         keyboard
     )
 
+@dp.callback_query(F.data.startswith("bk_"))
+async def on_bk_click(callback: types.CallbackQuery):
+    bk_name = callback.data.split("_", 1)[1]
+    user_choices.setdefault(callback.from_user.id, {})["bk"] = bk_name
+
+    # Логируем
+    await log_to_google_async(callback.from_user, "BK_CLICK", bk_name)
+
+    # Отправляем ссылку на БК
+    await callback.message.answer(
+        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\n{BK_LINKS[bk_name]}"
+    )
+    await callback.answer()
+
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Перейти к эксперту по футболу", url=Expert_LINKS["Football"])],
-        [InlineKeyboardButton(text="📊 Перейти к эксперту по киберспорту", url=Expert_LINKS["Cybersport"])],
+        [InlineKeyboardButton(text="📊 Эксперт по футболу", callback_data="exp_Football")],
+        [InlineKeyboardButton(text="📊 Эксперт по киберспорту", callback_data="exp_Cybersport")],
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
         [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
@@ -253,6 +271,20 @@ async def step_expert(callback: types.CallbackQuery):
         "И не забудь прочитать советы перед тем как ставить.\n",
         keyboard
     )
+
+@dp.callback_query(F.data.startswith("exp_"))
+async def on_expert_click(callback: types.CallbackQuery):
+    exp_name = callback.data.split("_", 1)[1]
+    user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_name
+
+    # Логируем
+    await log_to_google_async(callback.from_user, "EXPERT_CLICK", exp_name)
+
+    # Отправляем ссылку
+    await callback.message.answer(
+        f"📊 Эксперт по <b>{exp_name}</b>: {Expert_LINKS[exp_name]}"
+    )
+    await callback.answer()
 
 # === Шаг 5. Советы ===
 @dp.callback_query(F.data == "step_tips")
