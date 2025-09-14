@@ -56,6 +56,16 @@ client = gspread.authorize(creds)
 spreadsheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1HIrkvyNi0v_W3fW0Vbk4lmdspd1cwyCK4bSCwVuwIQQ/edit#gid=1138920267")
 sheet = spreadsheet.worksheet("Логи от бота")  # замени на имя твоего листа
 
+try:
+    creds_json = os.getenv("GOOGLE_CREDENTIALS")
+    print("GOOGLE_CREDENTIALS found:", bool(creds_json))
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        print("JSON parsed successfully")
+        print("Client email:", creds_dict.get('client_email'))
+except Exception as e:
+    print("Error parsing GOOGLE_CREDENTIALS:", e)
+
 def log_to_google(user: types.User, event_type: str, content: str):
     now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
     sheet.append_row([
