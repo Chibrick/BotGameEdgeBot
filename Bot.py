@@ -68,13 +68,14 @@ def log_to_google(user: types.User, event_type: str, content: str):
         content
     ])
 
-@dp.message()
+@dp.message(F.text & ~Command("start"))
 async def log_messages(message: types.Message):
     log_to_google(message.from_user, "MSG", message.text or "")
 
 @dp.callback_query()
-async def log_callbacks(callback: types.CallbackQuery):
+async def log_callbacks(callback: types.CallbackQuery, handler: types.HandlerCallable):
     log_to_google(callback.from_user, "BTN", callback.data or "")
+    return await handler(callback)
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
