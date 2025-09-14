@@ -13,18 +13,9 @@ from datetime import datetime, timezone, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import BaseMiddleware
 from typing import Callable, Dict, Any, Awaitable
+import traceback
 
 load_dotenv()
-try:
-    creds_json = os.getenv("GOOGLE_CREDENTIALS")
-    print("GOOGLE_CREDENTIALS found:", bool(creds_json))
-    if creds_json:
-        creds_dict = json.loads(creds_json)
-        print("JSON parsed successfully")
-        print("Client email:", creds_dict.get('client_email'))
-except Exception as e:
-    print("Error parsing GOOGLE_CREDENTIALS:", e)
-    
 API_TOKEN = os.getenv("API_TOKEN")
 
 # ссылки на экспертов
@@ -40,7 +31,12 @@ BK_LINKS = {
     "Pari": "https://chibrick.github.io/Pari/"
 }
 
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # инициализация
 bot = Bot(
@@ -49,32 +45,76 @@ bot = Bot(
 )
 dp = Dispatcher()
 
-
 # Устанавливаем часовой пояс МСК
 MSK = timezone(timedelta(hours=3))
 
-scope = ["https://spreadsheets.google.com/feeds",
-         "https://www.googleapis.com/auth/spreadsheets",
-         "https://www.googleapis.com/auth/drive.file",
-         "https://www.googleapis.com/auth/drive"]
+# Глобальные переменные для Google Sheets
+client = None
+sheet = None
 
-creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-client = gspread.authorize(creds)
+async def init_google_sheets():
+    """Инициализация Google Sheets"""
+    global client, sheet
+    try:
+        scope = [
+            "https://spreadsheets.google.com/feeds",
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive.file",
+            "https://www.googleapis.com/auth/drive"
+        ]
 
-spreadsheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1HIrkvyNi0v_W3fW0Vbk4lmdspd1cwyCK4bSCwVuwIQQ/edit#gid=1138920267")
-sheet = spreadsheet.worksheet("Логи от бота")  # замени на имя твоего листа
+        creds_json = os.getenv("GOOGLE_CREDENTIALS")
+        if not creds_json:
+            logger.error("GOOGLE_CREDENTIALS не найдены в переменных окружения!")
+            return False
+            
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        
+        spreadsheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1HIrkvyNi0v_W3fW0Vbk4lmdspd1cwyCK4bSCwVuwIQQ/edit#gid=1138920267")
+        sheet = spreadsheet.worksheet("Логи от бота")
+        
+        logger.info("Google Sheets успешно инициализированы!")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка при инициализации Google Sheets: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
-def log_to_google(user: types.User, event_type: str, content: str):
-    now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
-    sheet.append_row([
-        now,
-        user.id,
-        user.username or "",
-        user.first_name or "",
-        user.last_name or "",
-        event_type,
-        content
-    ])
+async def log_to_google_async(user: types.User, event_type: str, content: str):
+    """Асинхронная функция для записи логов в Google Таблицу"""
+    try:
+        if not sheet:
+            logger.error("Google Sheets не инициализированы!")
+            return False
+            
+        now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Выполняем синхронную операцию в отдельном потоке
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None, 
+            sheet.append_row,
+            [
+                now,
+                user.id,
+                user.username or "",
+                user.first_name or "",
+                user.last_name or "",
+                event_type,
+                content
+            ]
+        )
+        
+        logger.info(f"Лог записан: {user.id} - {event_type} - {content[:50]}...")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Ошибка при записи в Google Sheets: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
 
 # === Middleware для логов ===
 class LoggingMiddleware(BaseMiddleware):
@@ -84,10 +124,20 @@ class LoggingMiddleware(BaseMiddleware):
         event: types.TelegramObject,
         data: Dict[str, Any]
     ) -> Any:
-        if isinstance(event, types.Message):
-            log_to_google(event.from_user, "MSG", event.text or "")
-        elif isinstance(event, types.CallbackQuery):
-            log_to_google(event.from_user, "BTN", event.data or "")
+        try:
+            # Логируем событие
+            if isinstance(event, types.Message):
+                logger.info(f"Получено сообщение от {event.from_user.id}: {event.text}")
+                asyncio.create_task(log_to_google_async(event.from_user, "MSG", event.text or ""))
+                
+            elif isinstance(event, types.CallbackQuery):
+                logger.info(f"Получен callback от {event.from_user.id}: {event.data}")
+                asyncio.create_task(log_to_google_async(event.from_user, "BTN", event.data or ""))
+                
+        except Exception as e:
+            logger.error(f"Ошибка в LoggingMiddleware: {e}")
+            
+        # Продолжаем обработку события
         return await handler(event, data)
 
 dp.update.middleware(LoggingMiddleware())
@@ -95,6 +145,7 @@ dp.update.middleware(LoggingMiddleware())
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
 async def send_welcome(message: types.Message):
+    logger.info(f"Команда /start от пользователя {message.from_user.id}")
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")]
@@ -174,12 +225,25 @@ async def step_tips(callback: types.CallbackQuery):
         reply_markup=keyboard
     )
 
-# # === Завершение ===
-# @dp.callback_query(F.data == "done")
-# async def done(callback: types.CallbackQuery):
-#     await callback.message.edit_text("🚀 Отлично, ты готов к ставкам! Удачи 🍀")
+# Команда для тестирования логов
+@dp.message(Command("test_log"))
+async def test_log(message: types.Message):
+    """Команда для тестирования записи логов"""
+    result = await log_to_google_async(message.from_user, "TEST", "Тестирование логов")
+    if result:
+        await message.answer("✅ Лог успешно записан в Google Таблицу!")
+    else:
+        await message.answer("❌ Ошибка при записи лога в Google Таблицу!")
 
 async def main():
+    logger.info("Запуск бота...")
+    
+    # Инициализируем Google Sheets
+    sheets_ok = await init_google_sheets()
+    if not sheets_ok:
+        logger.warning("Google Sheets не удалось инициализировать, логи не будут записываться!")
+    
+    logger.info("Начинаем polling...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
