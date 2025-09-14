@@ -293,7 +293,7 @@ async def main():
     
     try:
         # Запускаем веб-сервер для healthcheck (ВАЖНО для Render.com!)
-        await start_webapp()
+        runner = await start_webapp()
         
         # Агрессивный сброс всех предыдущих экземпляров
         logger.info("Принудительное закрытие всех предыдущих сессий...")
