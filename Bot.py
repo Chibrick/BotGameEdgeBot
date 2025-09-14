@@ -97,7 +97,7 @@ async def init_google_sheets():
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-async def log_to_google_async(user: types.User, event_type: str, content: str, additional_data=None):
+async def log_to_google_async(user: types.User, event_type: str, content: str):
     """Асинхронная функция для записи логов в Google Таблицу"""
     try:
         if not sheet:
@@ -113,17 +113,13 @@ async def log_to_google_async(user: types.User, event_type: str, content: str, a
         
         # Данные для записи
         row_data = [
-            now,                           # Время
-            str(user.id),                  # ID пользователя
-            user.username or "",           # Username
-            user.first_name or "",         # Имя
-            user.last_name or "",          # Фамилия
-            user.language_code or "unknown", # Язык
-            event_type,                    # Тип события
-            content,                       # Содержание
-            additional_data or "",         # Дополнительные данные
-            str(user.is_premium or False), # Telegram Premium
-            ""  # Место для подтверждения перехода
+            now,                   # A
+            str(user.id),          # B  
+            user.username or "",   # C
+            user.first_name or "", # D
+            user.last_name or "",  # E
+            event_type,            # F
+            content[:100]          # G
         ]
         
         # Записываем точно в нужные ячейки
@@ -159,12 +155,12 @@ class LoggingMiddleware(BaseMiddleware):
             if isinstance(event, types.Message):
                 logger.info(f"Получено сообщение от {event.from_user.id}: {event.text}")
                 # Ждем завершения записи лога
-                await log_to_google_async(event.from_user, "MSG", event.text or "", f"msg_type:{event.content_type}")
+                await log_to_google_async(event.from_user, "MSG", event.text or "")
                 
             elif isinstance(event, types.CallbackQuery):
                 logger.info(f"Получен callback от {event.from_user.id}: {event.data}")
                 # Ждем завершения записи лога
-                await log_to_google_async(event.from_user, "BTN", event.data or "", f"callback_from:{event.message.message_id if event.message else 'unknown'}")
+                await log_to_google_async(event.from_user, "BTN", event.data or "")
                 
         except Exception as e:
             logger.error(f"Ошибка в LoggingMiddleware: {e}")
@@ -186,27 +182,6 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
         else:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
             await callback.answer("Произошла ошибка")
-
-@dp.message(F.contact)
-async def handle_contact(message: types.Message):
-    phone = message.contact.phone_number
-    await log_to_google_async(
-        message.from_user, 
-        "PHONE_REQUEST", 
-        "Получен номер телефона",
-        f"phone:{phone}"  # ← Добавлен additional_data
-    )
-
-@dp.message(F.location)
-async def handle_location(message: types.Message):
-    lat = message.location.latitude
-    lon = message.location.longitude
-    await log_to_google_async(
-        message.from_user,
-        "LOCATION_REQUEST", 
-        "Получена геолокация",
-        f"lat:{lat},lon:{lon}"  # ← Добавлен additional_data
-    )
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
@@ -245,12 +220,6 @@ async def why_free(callback: types.CallbackQuery):
 # === Шаг 3. Регистрация в БК ===
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
-    await log_to_google_async(
-        callback.from_user,
-        "BK_CLICK",
-        "Пользователь открыл раздел БК",
-        f"callback_data:{callback.data}"  # ← Добавлен additional_data
-    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
         [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
@@ -269,12 +238,6 @@ async def step_bk(callback: types.CallbackQuery):
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
-    await log_to_google_async(
-        callback.from_user,
-        "EXPERT_CLICK", 
-        "Пользователь открыл раздел экспертов",
-        f"callback_data:{callback.data}"  # ← Добавлен additional_data
-    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Перейти к эксперту по футболу", url=Expert_LINKS["Football"])],
         [InlineKeyboardButton(text="📊 Перейти к эксперту по киберспорту", url=Expert_LINKS["Cybersport"])],
@@ -311,12 +274,7 @@ async def step_tips(callback: types.CallbackQuery):
 @dp.message(Command("test_log"))
 async def test_log(message: types.Message):
     """Команда для тестирования записи логов"""
-    result = await log_to_google_async(
-        message.from_user, 
-        "TEST", 
-        "Тестирование логов",
-        "test_data:success"  # ← Добавлен additional_data
-    )
+    result = await log_to_google_async(message.from_user, "TEST", "Тестирование логов")
     if result:
         await message.answer("✅ Лог успешно записан в Google Таблицу!")
     else:
@@ -339,38 +297,11 @@ async def force_reset(message: types.Message):
 async def health_check(request):
     return web.Response(text="Bot is running!", status=200)
 
-async def handle_tracking(request):
-    """Обработчик переходов по tracking ссылкам"""
-    try:
-        ref_data = request.query.get('ref', '')
-        if ref_data:
-            # Декодируем данные (пример: ref_123456789_Fonbet_20250914_120000)
-            import urllib.parse
-            decoded_data = urllib.parse.unquote(ref_data)
-            
-            # Логируем переход
-            logger.info(f"📍 Tracking переход: {decoded_data}")
-            
-            # Здесь можно записать в Google Sheets
-            # await log_tracking_to_sheets(decoded_data)
-            
-        # Перенаправляем на целевую страницу
-        return web.Response(
-            text="<script>window.location.href = 'https://fonbet.com';</script>",
-            content_type='text/html'
-        )
-        
-    except Exception as e:
-        logger.error(f"Ошибка tracking: {e}")
-        return web.Response(text="Error", status=500)
-
 async def start_webapp():
-    """Запуск веб-сервера для healthcheck и tracking"""
+    """Запуск веб-сервера для healthcheck"""
     app = web.Application()
     app.router.add_get('/', health_check)
     app.router.add_get('/health', health_check)
-    app.router.add_get('/track', handle_tracking)  # ← Теперь внутри функции
-    
     runner = web.AppRunner(app)
     await runner.setup()
     
@@ -378,8 +309,6 @@ async def start_webapp():
     site = web.TCPSite(runner, '0.0.0.0', port)
     await site.start()
     logger.info(f"Веб-сервер запущен на порту {port}")
-    
-    return runner  # Возвращаем runner для корректного закрытия
 
 async def main():
     logger.info("Запуск бота...")
