@@ -245,7 +245,7 @@ async def on_bk_click(callback: types.CallbackQuery):
     user_choices.setdefault(callback.from_user.id, {})["bk"] = bk_name
 
     # Логируем
-    await log_to_google_async(callback.from_user, "BK_CLICK", bk_name)
+    # await log_to_google_async(callback.from_user, "BK_CLICK", bk_name)
 
     # Отправляем ссылку на БК
     await callback.message.answer(
@@ -278,7 +278,7 @@ async def on_expert_click(callback: types.CallbackQuery):
     user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_name
 
     # Логируем
-    await log_to_google_async(callback.from_user, "EXPERT_CLICK", exp_name)
+    # await log_to_google_async(callback.from_user, "EXPERT_CLICK", exp_name)
 
     # Отправляем ссылку
     await callback.message.answer(
