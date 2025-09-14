@@ -9,9 +9,10 @@ from aiogram.filters import Command
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import F
 from dotenv import load_dotenv
-import asyncio
 from datetime import datetime, timezone, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
+from aiogram import BaseMiddleware
+from typing import Callable, Dict, Any, Awaitable
 
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
@@ -49,7 +50,6 @@ scope = ["https://spreadsheets.google.com/feeds",
 
 creds_json = os.getenv("GOOGLE_CREDENTIALS")
 creds_dict = json.loads(creds_json)
-
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
@@ -68,14 +68,21 @@ def log_to_google(user: types.User, event_type: str, content: str):
         content
     ])
 
-@dp.message(F.text & ~Command("start"))
-async def log_messages(message: types.Message):
-    log_to_google(message.from_user, "MSG", message.text or "")
+# === Middleware для логов ===
+class LoggingMiddleware(BaseMiddleware):
+    async def __call__(
+        self,
+        handler: Callable[[types.TelegramObject, Dict[str, Any]], Awaitable[Any]],
+        event: types.TelegramObject,
+        data: Dict[str, Any]
+    ) -> Any:
+        if isinstance(event, types.Message):
+            log_to_google(event.from_user, "MSG", event.text or "")
+        elif isinstance(event, types.CallbackQuery):
+            log_to_google(event.from_user, "BTN", event.data or "")
+        return await handler(event, data)
 
-@dp.callback_query()
-async def log_callbacks(callback: types.CallbackQuery, handler: types.HandlerCallable):
-    log_to_google(callback.from_user, "BTN", callback.data or "")
-    return await handler(callback)
+dp.update.middleware(LoggingMiddleware())
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
