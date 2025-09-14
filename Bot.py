@@ -15,6 +15,16 @@ from aiogram import BaseMiddleware
 from typing import Callable, Dict, Any, Awaitable
 
 load_dotenv()
+try:
+    creds_json = os.getenv("GOOGLE_CREDENTIALS")
+    print("GOOGLE_CREDENTIALS found:", bool(creds_json))
+    if creds_json:
+        creds_dict = json.loads(creds_json)
+        print("JSON parsed successfully")
+        print("Client email:", creds_dict.get('client_email'))
+except Exception as e:
+    print("Error parsing GOOGLE_CREDENTIALS:", e)
+    
 API_TOKEN = os.getenv("API_TOKEN")
 
 # ссылки на экспертов
@@ -48,19 +58,6 @@ scope = ["https://spreadsheets.google.com/feeds",
          "https://www.googleapis.com/auth/drive.file",
          "https://www.googleapis.com/auth/drive"]
 
-try:
-    creds_json = os.getenv("GOOGLE_CREDENTIALS")
-    print("GOOGLE_CREDENTIALS found:", bool(creds_json))
-    if creds_json:
-        creds_dict = json.loads(creds_json)
-        print("JSON parsed successfully")
-        print("Client email:", creds_dict.get('client_email'))
-except Exception as e:
-    print("Error parsing GOOGLE_CREDENTIALS:", e)
-
-
-creds_json = os.getenv("GOOGLE_CREDENTIALS")
-creds_dict = json.loads(creds_json)
 creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
 client = gspread.authorize(creds)
 
