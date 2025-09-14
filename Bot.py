@@ -32,6 +32,19 @@ BK_LINKS = {
     "Pari": "https://chibrick.github.io/Pari/"
 }
 
+# Добавляем новые типы событий
+EVENT_TYPES = {
+    "MSG": "Сообщение",
+    "BTN": "Кнопка", 
+    "BK_CLICK": "Клик по БК",
+    "EXPERT_CLICK": "Клик по эксперту",
+    "PHONE_REQUEST": "Запрос телефона",
+    "LOCATION_REQUEST": "Запрос геолокации"
+}
+
+# Глобальный словарь для отслеживания кликов (в памяти)
+click_tracking = {}
+
 # Настройка логирования
 logging.basicConfig(
     level=logging.INFO,
@@ -100,13 +113,17 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
         
         # Данные для записи
         row_data = [
-            now,                   # A
-            str(user.id),          # B  
-            user.username or "",   # C
-            user.first_name or "", # D
-            user.last_name or "",  # E
-            event_type,            # F
-            content[:100]          # G
+            now,                           # Время
+            str(user.id),                  # ID пользователя
+            user.username or "",           # Username
+            user.first_name or "",         # Имя
+            user.last_name or "",          # Фамилия
+            user.language_code or "unknown", # Язык
+            event_type,                    # Тип события
+            content,                       # Содержание
+            additional_data or "",         # Дополнительные данные
+            str(user.is_premium or False), # Telegram Premium
+            ""  # Место для подтверждения перехода
         ]
         
         # Записываем точно в нужные ячейки
@@ -125,6 +142,88 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
         logger.error(f"Ошибка при записи в Google Sheets: {e}")
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
+
+def generate_tracking_link(bk_name, user_id):
+    """Генерация ссылки с отслеживанием"""
+    import urllib.parse
+    base_url = BK_LINKS[bk_name]
+    tracking_data = f"ref_{user_id}_{bk_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    
+    # Кодируем данные для URL
+    encoded_data = urllib.parse.quote(tracking_data)
+    return f"{base_url}?ref={encoded_data}"
+
+# Обновляем словарь BK_LINKS с отслеживанием
+def get_tracking_bk_links(user_id):
+    return {
+        "Fonbet": generate_tracking_link("Fonbet", user_id),
+        "1xbet": generate_tracking_link("1xbet", user_id), 
+        "Pari": generate_tracking_link("Pari", user_id)
+    }
+
+# Клавиатура для запроса телефона
+phone_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📞 Отправить номер телефона", request_contact=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
+
+# Клавиатура для запроса локации
+location_keyboard = ReplyKeyboardMarkup(
+    keyboard=[[KeyboardButton(text="📍 Отправить геолокацию", request_location=True)]],
+    resize_keyboard=True,
+    one_time_keyboard=True
+)
+
+@dp.message(F.contact)
+async def handle_contact(message: types.Message):
+    """Обработка полученного номера телефона"""
+    phone = message.contact.phone_number
+    await log_to_google_async(
+        message.from_user, 
+        "PHONE_REQUEST", 
+        f"Получен номер телефона",
+        f"phone:{phone}"
+    )
+    
+    await message.answer(
+        "✅ Спасибо! Номер телефона получен.\n"
+        "Это поможет нам персонализировать предложения.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+@dp.message(F.location)
+async def handle_location(message: types.Message):
+    """Обработка полученной геолокации"""
+    lat = message.location.latitude
+    lon = message.location.longitude
+    await log_to_google_async(
+        message.from_user,
+        "LOCATION_REQUEST", 
+        f"Получена геолокация",
+        f"lat:{lat},lon:{lon}"
+    )
+    
+    await message.answer(
+        "✅ Спасибо! Геолокация получена.\n"
+        "Мы учтем ваш регион для персонализации предложений.",
+        reply_markup=ReplyKeyboardRemove()
+    )
+
+# Добавим простой веб-сервер для отслеживания переходов
+async def handle_tracking(request):
+    """Обработчик переходов по tracking ссылкам"""
+    try:
+        ref_data = request.query.get('ref', '')
+        # Декодируем и разбираем данные
+        # Здесь можно добавить запись в базу или Google Sheets
+        logger.info(f"Переход по ссылке: {ref_data}")
+        return web.Response(text="Redirecting...", status=302, headers={'Location': 'https://target-site.com'})
+    except:
+        return web.Response(status=400)
+
+# Добавить в start_webapp
+app.router.add_get('/track', handle_tracking)
 
 # === Middleware для логов ===
 class LoggingMiddleware(BaseMiddleware):
@@ -207,12 +306,23 @@ async def why_free(callback: types.CallbackQuery):
 # === Шаг 3. Регистрация в БК ===
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    tracking_links = get_tracking_bk_links(user_id)
+
+     # Логируем клик по разделу БК
+    await log_to_google_async(
+        callback.from_user,
+        "BK_CLICK",
+        "Пользователь открыл раздел БК"
+    )
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
-        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
-        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", url=BK_LINKS["Pari"])],
+        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=tracking_links["Fonbet"])],
+        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=tracking_links["1xbet"])],
+        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", url=tracking_links["Pari"])],
         [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
     ])
+
     await safe_edit_message(
         callback,
         "🚀 Переходи по ссылке, регистрируйся в БК и активируй бонус при пополнении.\n"
@@ -225,6 +335,13 @@ async def step_bk(callback: types.CallbackQuery):
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
+    # Логируем клик по разделу экспертов
+    await log_to_google_async(
+        callback.from_user,
+        "EXPERT_CLICK", 
+        "Пользователь открыл раздел экспертов"
+    )
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Перейти к эксперту по футболу", url=Expert_LINKS["Football"])],
         [InlineKeyboardButton(text="📊 Перейти к эксперту по киберспорту", url=Expert_LINKS["Cybersport"])],
