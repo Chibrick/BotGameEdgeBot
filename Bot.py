@@ -14,6 +14,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from aiogram import BaseMiddleware
 from typing import Callable, Dict, Any, Awaitable
 import traceback
+from aiohttp import web
 
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
@@ -124,23 +125,41 @@ class LoggingMiddleware(BaseMiddleware):
         event: types.TelegramObject,
         data: Dict[str, Any]
     ) -> Any:
+        # Сначала обрабатываем событие
+        result = await handler(event, data)
+        
+        # Потом логируем (чтобы не блокировать обработку)
         try:
-            # Логируем событие
             if isinstance(event, types.Message):
                 logger.info(f"Получено сообщение от {event.from_user.id}: {event.text}")
-                asyncio.create_task(log_to_google_async(event.from_user, "MSG", event.text or ""))
+                # Ждем завершения записи лога
+                await log_to_google_async(event.from_user, "MSG", event.text or "")
                 
             elif isinstance(event, types.CallbackQuery):
                 logger.info(f"Получен callback от {event.from_user.id}: {event.data}")
-                asyncio.create_task(log_to_google_async(event.from_user, "BTN", event.data or ""))
+                # Ждем завершения записи лога
+                await log_to_google_async(event.from_user, "BTN", event.data or "")
                 
         except Exception as e:
             logger.error(f"Ошибка в LoggingMiddleware: {e}")
             
-        # Продолжаем обработку события
-        return await handler(event, data)
+        return result
 
-dp.update.middleware(LoggingMiddleware())
+dp.message.middleware(LoggingMiddleware())
+dp.callback_query.middleware(LoggingMiddleware())
+
+# Функция для безопасного редактирования сообщений
+async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_markup=None):
+    """Безопасное редактирование сообщения с обработкой ошибки дублирования"""
+    try:
+        await callback.message.edit_text(text, reply_markup=reply_markup)
+    except Exception as e:
+        if "message is not modified" in str(e):
+            # Просто отвечаем на callback, чтобы убрать "часики"
+            await callback.answer()
+        else:
+            logger.error(f"Ошибка при редактировании сообщения: {e}")
+            await callback.answer("Произошла ошибка")
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
@@ -167,12 +186,13 @@ async def why_free(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="⏭ Эксперт", callback_data="step_expert")]
     ])
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         "💡 Секрет простой:\n"
         "– Ты играешь и выигрываешь по нашим прогнозам\n"
         "– Мы договариваемся о матчах, но не можем ставить много, поэтому делимся и получаем бонус\n\n"
         "👉 Поэтому нам выгодно, чтобы ты выигрывал и оставался с нами 👍",
-        reply_markup=keyboard
+        keyboard
     )
 
 # === Шаг 3. Регистрация в БК ===
@@ -184,12 +204,13 @@ async def step_bk(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", url=BK_LINKS["Pari"])],
         [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
     ])
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         "🚀 Переходи по ссылке, регистрируйся в БК и активируй бонус при пополнении.\n"
         "⚡ Вот несколько контор, которые ты можешь добавить.\n"
         "‼ Советуем распределить деньги по нескольким компаниям.\n\n"
         "⏭ Как закончишь, переходи к экспертам.",
-        reply_markup=keyboard
+        keyboard
     )
 
 # === Шаг 4. Эксперт ===
@@ -202,12 +223,13 @@ async def step_expert(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
         [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
     ])
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         "🎯 А вот и ссылка на экспертов.📊\n"
         "Перейди в канал и попроси доступ к прогнозам, чтобы получить сегодняшние рекомендации и первую стратегию.\n\n"
         "Иногда мы добавляем новые бонусы от букмекеров, поэтому ждем тебя снова.\n"
         "И не забудь прочитать советы перед тем как ставить.\n",
-        reply_markup=keyboard
+        keyboard
     )
 
 # === Шаг 5. Советы ===
@@ -216,13 +238,14 @@ async def step_tips(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Понял", callback_data="step_expert")]
     ])
-    await callback.message.edit_text(
+    await safe_edit_message(
+        callback,
         "⚠️ Перед тем как начать:\n"
         "1️. Ставь сначала маленькие суммы — важно привыкнуть к системе.\n"
         "2️. Для исключения блокировки аккаунта, иногда нужно специально проиграть ставку.\n"
         "3. Если вдруг что-то пойдёт не так — эксперт предложит компенсацию/совет, чтобы вернуть доверие\n\n"
         "👉 Твой плюс = наш плюс 💪",
-        reply_markup=keyboard
+        keyboard
     )
 
 # Команда для тестирования логов
@@ -235,16 +258,81 @@ async def test_log(message: types.Message):
     else:
         await message.answer("❌ Ошибка при записи лога в Google Таблицу!")
 
+# Команда для принудительной остановки других экземпляров
+@dp.message(Command("force_reset"))
+async def force_reset(message: types.Message):
+    """Принудительный сброс webhook и очистка апдейтов"""
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.get_me()  # Проверяем соединение
+        await message.answer("✅ Webhook сброшен, все апдейты очищены!")
+        logger.info(f"Принудительный сброс выполнен пользователем {message.from_user.id}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при сбросе: {e}")
+        logger.error(f"Ошибка при принудительном сбросе: {e}")
+
+# Healthcheck для Render.com
+async def health_check(request):
+    return web.Response(text="Bot is running!", status=200)
+
+async def start_webapp():
+    """Запуск веб-сервера для healthcheck"""
+    app = web.Application()
+    app.router.add_get('/', health_check)
+    app.router.add_get('/health', health_check)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.getenv('PORT', 10000))
+    site = web.TCPSite(runner, '0.0.0.0', port)
+    await site.start()
+    logger.info(f"Веб-сервер запущен на порту {port}")
+
 async def main():
     logger.info("Запуск бота...")
     
-    # Инициализируем Google Sheets
-    sheets_ok = await init_google_sheets()
-    if not sheets_ok:
-        logger.warning("Google Sheets не удалось инициализировать, логи не будут записываться!")
-    
-    logger.info("Начинаем polling...")
-    await dp.start_polling(bot)
+    try:
+        # Запускаем веб-сервер для healthcheck (ВАЖНО для Render.com!)
+        await start_webapp()
+        
+        # Агрессивный сброс всех предыдущих экземпляров
+        logger.info("Принудительное закрытие всех предыдущих сессий...")
+        try:
+            # Сначала пробуем получить информацию о боте
+            me = await bot.get_me()
+            logger.info(f"Бот найден: {me.username} (ID: {me.id})")
+            
+            # Удаляем webhook и все pending updates
+            await bot.delete_webhook(drop_pending_updates=True)
+            logger.info("Webhook удален, pending updates очищены")
+            
+            # Дополнительная пауза для гарантии
+            await asyncio.sleep(2)
+            
+        except Exception as e:
+            logger.error(f"Ошибка при сбросе webhook: {e}")
+        
+        # Инициализируем Google Sheets
+        sheets_ok = await init_google_sheets()
+        if not sheets_ok:
+            logger.warning("Google Sheets не удалось инициализировать, логи не будут записываться!")
+        
+        logger.info("Начинаем polling...")
+        await dp.start_polling(
+            bot, 
+            drop_pending_updates=True,
+            allowed_updates=dp.resolve_used_update_types()
+        )
+        
+    except Exception as e:
+        logger.error(f"Критическая ошибка при запуске бота: {e}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+    finally:
+        logger.info("Бот завершает работу...")
+        try:
+            await bot.session.close()
+        except:
+            pass
 
 if __name__ == "__main__":
     asyncio.run(main())
