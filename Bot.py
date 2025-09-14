@@ -347,7 +347,9 @@ async def step_expert(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="📊 Перейти к эксперту по киберспорту", url=Expert_LINKS["Cybersport"])],
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
-        [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
+        [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")],
+        [InlineKeyboardButton(text="📞 Предоставить номер", callback_data="request_phone")],
+        [InlineKeyboardButton(text="📍 Предоставить геолокацию", callback_data="request_location")]
     ])
     await safe_edit_message(
         callback,
