@@ -1,6 +1,7 @@
 import os
 import asyncio
 import logging
+import gspread
 from aiogram import Bot, Dispatcher, types
 from aiogram.client.default import DefaultBotProperties
 from aiogram.filters import Command
@@ -8,6 +9,8 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from aiogram import F
 from dotenv import load_dotenv
 import asyncio
+from datetime import datetime, timezone, timedelta
+from oauth2client.service_account import ServiceAccountCredentials
 
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
@@ -33,6 +36,41 @@ bot = Bot(
     default=DefaultBotProperties(parse_mode="HTML")
 )
 dp = Dispatcher()
+
+
+# Устанавливаем часовой пояс МСК
+MSK = timezone(timedelta(hours=3))
+
+scope = ["https://spreadsheets.google.com/feeds",
+         "https://www.googleapis.com/auth/spreadsheets",
+         "https://www.googleapis.com/auth/drive.file",
+         "https://www.googleapis.com/auth/drive"]
+
+creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+client = gspread.authorize(creds)
+
+spreadsheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1HIrkvyNi0v_W3fW0Vbk4lmdspd1cwyCK4bSCwVuwIQQ/edit#gid=1138920267")
+sheet = spreadsheet.worksheet("Логи от бота")  # замени на имя твоего листа
+
+def log_to_google(user: types.User, event_type: str, content: str):
+    now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
+    sheet.append_row([
+        now,
+        user.id,
+        user.username or "",
+        user.first_name or "",
+        user.last_name or "",
+        event_type,
+        content
+    ])
+
+@dp.message()
+async def log_messages(message: types.Message):
+    log_to_google(message.from_user, "MSG", message.text or "")
+
+@dp.callback_query()
+async def log_callbacks(callback: types.CallbackQuery):
+    log_to_google(callback.from_user, "BTN", callback.data or "")
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
