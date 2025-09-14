@@ -93,20 +93,24 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
             
         now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
         
+        # Данные для записи - явно указываем все 7 столбцов
+        row_data = [
+            now,                   # Столбец A: Время
+            str(user.id),          # Столбец B: ID пользователя
+            user.username or "",   # Столбец C: username
+            user.first_name or "", # Столбец D: Имя
+            user.last_name or "",  # Столбец E: Фамилия
+            event_type,            # Столбец F: Тип события
+            content[:100]          # Столбец G: Содержание
+        ]
+        
         # Выполняем синхронную операцию в отдельном потоке
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(
             None, 
             sheet.append_row,
-            [
-                now,
-                user.id,
-                user.username or "",
-                user.first_name or "",
-                user.last_name or "",
-                event_type,
-                content
-            ]
+            row_data,
+            value_input_option='USER_ENTERED'  # Важно для правильного форматирования
         )
         
         logger.info(f"Лог записан: {user.id} - {event_type} - {content[:50]}...")
@@ -199,8 +203,8 @@ async def why_free(callback: types.CallbackQuery):
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-    	[InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
-    	[InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
+        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
+        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
         [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", url=BK_LINKS["Pari"])],
         [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
     ])
@@ -270,6 +274,33 @@ async def force_reset(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка при сбросе: {e}")
         logger.error(f"Ошибка при принудительном сбросе: {e}")
+
+@dp.message(Command("init_table"))
+async def init_table(message: types.Message):
+    """Инициализация таблицы с заголовками"""
+    try:
+        if not sheet:
+            await message.answer("Google Sheets не инициализированы!")
+            return
+            
+        # Заголовки столбцов
+        headers = [
+            ["Время", "ID пользователя", "Username", "Имя", "Фамилия", "Тип события", "Содержание"]
+        ]
+        
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(
+            None,
+            sheet.update,
+            "A1:G1",
+            headers,
+            value_input_option='USER_ENTERED'
+        )
+        
+        await message.answer("✅ Таблица инициализирована с заголовками!")
+        
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
 
 # Healthcheck для Render.com
 async def health_check(request):
