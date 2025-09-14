@@ -226,8 +226,8 @@ async def why_free(callback: types.CallbackQuery):
 async def step_bk(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", callback_data="bk_Fonbet")],
-        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="1xbet")],
-        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="Pari")],
+        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="bk_1xbet")],
+        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="bk_Pari")],
         [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
     ])
     await safe_edit_message(
