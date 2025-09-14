@@ -1,0 +1,4 @@
+aiogram==3.10.0
+python-dotenv
+
+API_TOKEN = "8214650150:AAHUZDIRuFiOYIK3bgclBnHLytf5-dknVPQ"
