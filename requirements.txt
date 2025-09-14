@@ -1,5 +1,4 @@
 aiogram==3.10.0
 python-dotenv
-pip install gspread oauth2client
 gspread==6.1.2
 oauth2client==4.1.3
