@@ -97,7 +97,7 @@ async def init_google_sheets():
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
-async def log_to_google_async(user: types.User, event_type: str, content: str):
+async def log_to_google_async(user: types.User, event_type: str, content: str, additional_data=None):
     """Асинхронная функция для записи логов в Google Таблицу"""
     try:
         if not sheet:
@@ -159,12 +159,12 @@ class LoggingMiddleware(BaseMiddleware):
             if isinstance(event, types.Message):
                 logger.info(f"Получено сообщение от {event.from_user.id}: {event.text}")
                 # Ждем завершения записи лога
-                await log_to_google_async(event.from_user, "MSG", event.text or "")
+                await log_to_google_async(event.from_user, "MSG", event.text or "", f"msg_type:{event.content_type}")
                 
             elif isinstance(event, types.CallbackQuery):
                 logger.info(f"Получен callback от {event.from_user.id}: {event.data}")
                 # Ждем завершения записи лога
-                await log_to_google_async(event.from_user, "BTN", event.data or "")
+                await log_to_google_async(event.from_user, "BTN", event.data or "", f"callback_from:{event.message.message_id if event.message else 'unknown'}")
                 
         except Exception as e:
             logger.error(f"Ошибка в LoggingMiddleware: {e}")
@@ -186,6 +186,27 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
         else:
             logger.error(f"Ошибка при редактировании сообщения: {e}")
             await callback.answer("Произошла ошибка")
+
+@dp.message(F.contact)
+async def handle_contact(message: types.Message):
+    phone = message.contact.phone_number
+    await log_to_google_async(
+        message.from_user, 
+        "PHONE_REQUEST", 
+        "Получен номер телефона",
+        f"phone:{phone}"  # ← Добавлен additional_data
+    )
+
+@dp.message(F.location)
+async def handle_location(message: types.Message):
+    lat = message.location.latitude
+    lon = message.location.longitude
+    await log_to_google_async(
+        message.from_user,
+        "LOCATION_REQUEST", 
+        "Получена геолокация",
+        f"lat:{lat},lon:{lon}"  # ← Добавлен additional_data
+    )
 
 # === Шаг 1. Приветствие ===
 @dp.message(Command("start"))
@@ -224,6 +245,12 @@ async def why_free(callback: types.CallbackQuery):
 # === Шаг 3. Регистрация в БК ===
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
+    await log_to_google_async(
+        callback.from_user,
+        "BK_CLICK",
+        "Пользователь открыл раздел БК",
+        f"callback_data:{callback.data}"  # ← Добавлен additional_data
+    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", url=BK_LINKS["Fonbet"])],
         [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", url=BK_LINKS["1xbet"])],
@@ -242,6 +269,12 @@ async def step_bk(callback: types.CallbackQuery):
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
+    await log_to_google_async(
+        callback.from_user,
+        "EXPERT_CLICK", 
+        "Пользователь открыл раздел экспертов",
+        f"callback_data:{callback.data}"  # ← Добавлен additional_data
+    )
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Перейти к эксперту по футболу", url=Expert_LINKS["Football"])],
         [InlineKeyboardButton(text="📊 Перейти к эксперту по киберспорту", url=Expert_LINKS["Cybersport"])],
@@ -278,7 +311,12 @@ async def step_tips(callback: types.CallbackQuery):
 @dp.message(Command("test_log"))
 async def test_log(message: types.Message):
     """Команда для тестирования записи логов"""
-    result = await log_to_google_async(message.from_user, "TEST", "Тестирование логов")
+    result = await log_to_google_async(
+        message.from_user, 
+        "TEST", 
+        "Тестирование логов",
+        "test_data:success"  # ← Добавлен additional_data
+    )
     if result:
         await message.answer("✅ Лог успешно записан в Google Таблицу!")
     else:
