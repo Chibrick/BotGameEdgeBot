@@ -93,27 +93,32 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
             
         now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
         
-        # Данные для записи - явно указываем все 7 столбцов
+        # Получаем следующую пустую строку
+        loop = asyncio.get_event_loop()
+        all_values = await loop.run_in_executor(None, sheet.get_all_values)
+        next_row = len(all_values) + 1
+        
+        # Данные для записи
         row_data = [
-            now,                   # Столбец A: Время
-            str(user.id),          # Столбец B: ID пользователя
-            user.username or "",   # Столбец C: username
-            user.first_name or "", # Столбец D: Имя
-            user.last_name or "",  # Столбец E: Фамилия
-            event_type,            # Столбец F: Тип события
-            content[:100]          # Столбец G: Содержание
+            now,                   # A
+            str(user.id),          # B  
+            user.username or "",   # C
+            user.first_name or "", # D
+            user.last_name or "",  # E
+            event_type,            # F
+            content[:100]          # G
         ]
         
-        # Выполняем синхронную операцию в отдельном потоке
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None, 
-            sheet.append_row,
-            row_data,
-            value_input_option='USER_ENTERED'  # Важно для правильного форматирования
-        )
+        # Записываем точно в нужные ячейки
+        range_name = f"A{next_row}:G{next_row}"
         
-        logger.info(f"Лог записан: {user.id} - {event_type} - {content[:50]}...")
+        # Правильный способ: создаем функцию-обертку
+        def update_sheet():
+            sheet.update(range_name, [row_data], value_input_option='USER_ENTERED')
+        
+        await loop.run_in_executor(None, update_sheet)
+        
+        logger.info(f"Лог записан в строку {next_row}: {user.id} - {event_type}")
         return True
         
     except Exception as e:
@@ -274,33 +279,6 @@ async def force_reset(message: types.Message):
     except Exception as e:
         await message.answer(f"❌ Ошибка при сбросе: {e}")
         logger.error(f"Ошибка при принудительном сбросе: {e}")
-
-@dp.message(Command("init_table"))
-async def init_table(message: types.Message):
-    """Инициализация таблицы с заголовками"""
-    try:
-        if not sheet:
-            await message.answer("Google Sheets не инициализированы!")
-            return
-            
-        # Заголовки столбцов
-        headers = [
-            ["Время", "ID пользователя", "Username", "Имя", "Фамилия", "Тип события", "Содержание"]
-        ]
-        
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(
-            None,
-            sheet.update,
-            "A1:G1",
-            headers,
-            value_input_option='USER_ENTERED'
-        )
-        
-        await message.answer("✅ Таблица инициализирована с заголовками!")
-        
-    except Exception as e:
-        await message.answer(f"❌ Ошибка: {e}")
 
 # Healthcheck для Render.com
 async def health_check(request):
