@@ -326,28 +326,43 @@ async def force_reset(message: types.Message):
         logger.error(f"Ошибка при принудительном сбросе: {e}")
 
 # Healthcheck для Render.com
-async def health_check(request):
-    return web.Response(text="Bot is running!", status=200)
+# async def health_check(request):
+#     return web.Response(text="Bot is running!", status=200)
 
-async def start_webapp():
-    """Запуск веб-сервера для healthcheck"""
+# async def start_webapp():
+#     """Запуск веб-сервера для healthcheck"""
+#     app = web.Application()
+#     app.router.add_get('/', health_check)
+#     app.router.add_get('/health', health_check)
+#     runner = web.AppRunner(app)
+#     await runner.setup()
+
+
+async def handle(request):
+    return web.Response(text="I'm alive!")
+
+async def start_web_server():
+    port = int(os.environ.get("PORT", 10000))  # Render передаёт PORT
     app = web.Application()
-    app.router.add_get('/', health_check)
-    app.router.add_get('/health', health_check)
+    app.router.add_get("/", handle)
     runner = web.AppRunner(app)
     await runner.setup()
-    
-    port = int(os.getenv('PORT', 10000))
-    site = web.TCPSite(runner, '0.0.0.0', port)
+    site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    logger.info(f"Веб-сервер запущен на порту {port}")
+    logging.info(f"Веб-сервер запущен на порту {port}")
+
+
+#     port = int(os.getenv('PORT', 10000))
+#     site = web.TCPSite(runner, '0.0.0.0', port)
+#     await site.start()
+#     logger.info(f"Веб-сервер запущен на порту {port}")
 
 async def main():
     logger.info("Запуск бота...")
     
     try:
         # Запускаем веб-сервер для healthcheck (ВАЖНО для Render.com!)
-        runner = await start_webapp()
+        # runner = await start_webapp()
         
         # Агрессивный сброс всех предыдущих экземпляров
         logger.info("Принудительное закрытие всех предыдущих сессий...")
@@ -371,6 +386,9 @@ async def main():
         if not sheets_ok:
             logger.warning("Google Sheets не удалось инициализировать, логи не будут записываться!")
         
+        # Запускаем фоновый веб-сервер для Render (healthcheck)
+        asyncio.create_task(start_web_server())
+
         logger.info("Начинаем polling...")
         await dp.start_polling(
             bot, 
@@ -389,4 +407,5 @@ async def main():
             pass
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
