@@ -22,9 +22,17 @@ API_TOKEN = os.getenv("API_TOKEN")
 user_choices = {}  # { user_id: {"bk": "", "expert": ""} }
 
 # ссылки на экспертов
-Expert_LINKS = {
-    "Football_Africa": "https://t.me/assistantafrica",
-    "Cybersport_Gamesport": "https://t.me/GS_Helps"
+EXPERTS = {
+    "Football_Africa": {
+        "name": "Эксперт по футболу",
+        "link": "https://t.me/assistantafrica"
+    },
+    "Cybersport_Gamesport": {
+        "name": "Аналитика по киберспорту",
+        "link": "https://t.me/GS_Helps"
+    },
+    # Можно добавлять новых экспертов так:
+    # "Tennis_Pro": {"name": "теннису", "link": "https://t.me/tennis_channel"}
 }
 
 # Партнёрские ссылки на БК
@@ -274,15 +282,17 @@ async def step_expert(callback: types.CallbackQuery):
 
 @dp.callback_query(F.data.startswith("exp_"))
 async def on_expert_click(callback: types.CallbackQuery):
-    exp_name = callback.data.split("_", 1)[1]
-    user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_name
+    # Пример: exp_Football_Africa → Football_Africa
+    exp_key = callback.data.split("_", 1)[1]
+    user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_key
 
-    # Логируем
-    # await log_to_google_async(callback.from_user, "EXPERT_CLICK", exp_name)
+    expert = EXPERTS.get(exp_key)
+    if not expert:
+        await callback.message.answer("❌ Эксперт не найден")
+        return
 
-    # Отправляем ссылку
     await callback.message.answer(
-        f"📊 Эксперт по <b>{exp_name}</b>: {Expert_LINKS[exp_name]}"
+        f"📊 <b>{expert['name']}</b>: {expert['link']}"
     )
     await callback.answer()
 
