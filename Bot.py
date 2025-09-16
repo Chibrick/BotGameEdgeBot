@@ -23,8 +23,8 @@ user_choices = {}  # { user_id: {"bk": "", "expert": ""} }
 
 # ссылки на экспертов
 Expert_LINKS = {
-    "Football": "https://t.me/assistantafrica",
-    "Cybersport": "https://t.me/GS_Helps"
+    "Football_Africa": "https://t.me/assistantafrica",
+    "Cybersport_Gamesport": "https://t.me/GS_Helps"
 }
 
 # Партнёрские ссылки на БК
@@ -257,8 +257,8 @@ async def on_bk_click(callback: types.CallbackQuery):
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Эксперт по футболу", callback_data="exp_Football")],
-        [InlineKeyboardButton(text="📊 Эксперт по киберспорту", callback_data="exp_Cybersport")],
+        [InlineKeyboardButton(text="📊 Эксперт по футболу", callback_data="exp_Football_Africa")],
+        [InlineKeyboardButton(text="📊 Эксперт по киберспорту", callback_data="exp_Cybersport_Gamesport")],
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
         [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
