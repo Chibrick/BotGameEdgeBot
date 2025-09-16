@@ -27,10 +27,10 @@ EXPERTS = {
         "name": "Эксперт по футболу",
         "link": "https://t.me/assistantafrica"
     },
-    "Cybersport_Gamesport": {
-        "name": "Аналитика по киберспорту",
-        "link": "https://t.me/GS_Helps"
-    },
+    # "Cybersport_Gamesport": {
+    #     "name": "Аналитика по киберспорту",
+    #     "link": "https://t.me/GS_Helps"
+    # },
     # Можно добавлять новых экспертов так:
     # "Tennis_Pro": {"name": "теннису", "link": "https://t.me/tennis_channel"}
 }
