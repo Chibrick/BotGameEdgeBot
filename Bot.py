@@ -264,13 +264,22 @@ async def on_bk_click(callback: types.CallbackQuery):
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📊 Эксперт по футболу", callback_data="exp_Football_Africa")],
-        #[InlineKeyboardButton(text="📊 Эксперт по киберспорту", callback_data="exp_Cybersport_Gamesport")],
+    # Создаём кнопки экспертов динамически
+    expert_buttons = [
+        [InlineKeyboardButton(text=f"📊 {data['name']}", callback_data=f"exp_{key}")]
+        for key, data in EXPERTS.items()
+    ]
+
+    # Добавляем дополнительные кнопки
+    extra_buttons = [
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
         [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
-    ])
+    ]
+
+    # Итоговая клавиатура
+    keyboard = InlineKeyboardMarkup(inline_keyboard=expert_buttons + extra_buttons)
+    
     await safe_edit_message(
         callback,
         "🎯 А вот и ссылка на экспертов.📊\n"
