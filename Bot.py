@@ -218,14 +218,16 @@ async def send_welcome(message: types.Message):
     args = message.text.split(maxsplit=1)
     ref = args[1] if len(args) > 1 else "без_метки"
 
+    now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
     user_id = message.from_user.id
     username = message.from_user.username or ""
+    first_name = message.from_user.first_name or ""
 
     logger.info(f"Команда /start от пользователя {user_id} с меткой: {ref}")
 
     # 📌 Записываем в Google Sheets
-    log_to_sheets([str(user_id), username, ref, "START"])
-    
+    log_to_sheets([now, str(user_id), username, first_name, "", "START", "/start", "", "", ref])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")]
