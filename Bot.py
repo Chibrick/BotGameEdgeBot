@@ -107,6 +107,21 @@ async def init_google_sheets():
         logger.error(f"Traceback: {traceback.format_exc()}")
         return False
 
+def log_to_sheets(row_data: list):
+    """Записывает данные в таблицу"""
+    try:
+        # Находим первую пустую строку
+        last_row = len(sheet.get_all_values()) + 1
+        # Записываем данные
+        sheet.update(
+            range_name=f"A{last_row}",
+            values=[row_data],
+            value_input_option="USER_ENTERED"
+        )
+        logger.info(f"Лог записан в строку {last_row}: {row_data}")
+    except Exception as e:
+        logger.error(f"Ошибка при записи в таблицу: {e}")
+
 async def log_to_google_async(user: types.User, event_type: str, content: str):
     """Асинхронная функция для записи логов в Google Таблицу"""
     try:
@@ -130,8 +145,8 @@ async def log_to_google_async(user: types.User, event_type: str, content: str):
             user.last_name or "",  # E
             event_type,            # F
             content[:100],         # G
-            "",                         # H phone
-            ""                          # I location
+            "",                    # H phone
+            ""                     # I location
         ]
         
         # Записываем точно в нужные ячейки
@@ -196,9 +211,21 @@ async def safe_edit_message(callback: types.CallbackQuery, text: str, reply_mark
             await callback.answer("Произошла ошибка")
 
 # === Шаг 1. Приветствие ===
-@dp.message(Command("start"))
+@dp.message(F.text.startswith("/start"))
 async def send_welcome(message: types.Message):
-    logger.info(f"Команда /start от пользователя {message.from_user.id}")
+    
+    # Получаем метку, если она есть
+    args = message.text.split(maxsplit=1)
+    ref = args[1] if len(args) > 1 else "без_метки"
+
+    user_id = message.from_user.id
+    username = message.from_user.username or ""
+
+    logger.info(f"Команда /start от пользователя {user_id} с меткой: {ref}")
+
+    # 📌 Записываем в Google Sheets
+    log_to_sheets([str(user_id), username, ref, "START"])
+    
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
         [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")]
