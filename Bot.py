@@ -27,10 +27,10 @@ EXPERTS = {
         "name": "Эксперт по футболу",
         "link": "https://t.me/assistantafrica"
     },
-    "Cybersport_Gamesport": {
-        "name": "Аналитика по киберспорту",
-        "link": "https://t.me/GS_Helps"
-    },
+    # "Cybersport_Gamesport": {
+    #     "name": "Аналитика по киберспорту",
+    #     "link": "https://t.me/GS_Helps"
+    # },
     # Можно добавлять новых экспертов так:
     # "Tennis_Pro": {"name": "теннису", "link": "https://t.me/tennis_channel"}
 }
@@ -256,7 +256,7 @@ async def on_bk_click(callback: types.CallbackQuery):
     # await log_to_google_async(callback.from_user, "BK_CLICK", bk_name)
 
     # Отправляем ссылку на БК
-    await callback.message.edit_text(
+    await callback.message.answer(
         f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\n{BK_LINKS[bk_name]}", parse_mode="HTML"
     )
     await callback.answer()
@@ -313,8 +313,9 @@ async def on_expert_click(callback: types.CallbackQuery):
         await callback.message.answer("❌ Эксперт не найден")
         return
 
-    await callback.message.edit_text(
-        f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}", parse_mode="HTML"
+    await callback.message.answer(
+        f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}",
+        parse_mode="HTML"
     )
     await callback.answer()
 
