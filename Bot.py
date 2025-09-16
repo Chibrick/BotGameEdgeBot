@@ -27,10 +27,10 @@ EXPERTS = {
         "name": "Эксперт по футболу",
         "link": "https://t.me/assistantafrica"
     },
-    # "Cybersport_Gamesport": {
-    #     "name": "Аналитика по киберспорту",
-    #     "link": "https://t.me/GS_Helps"
-    # },
+    "Cybersport_Gamesport": {
+        "name": "Аналитика по киберспорту",
+        "link": "https://t.me/GS_Helps"
+    },
     # Можно добавлять новых экспертов так:
     # "Tennis_Pro": {"name": "теннису", "link": "https://t.me/tennis_channel"}
 }
@@ -256,14 +256,22 @@ async def on_bk_click(callback: types.CallbackQuery):
     # await log_to_google_async(callback.from_user, "BK_CLICK", bk_name)
 
     # Отправляем ссылку на БК
-    await callback.message.answer(
-        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\n{BK_LINKS[bk_name]}"
+    await callback.message.edit_text(
+        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\n{BK_LINKS[bk_name]}", parse_mode="HTML"
     )
     await callback.answer()
 
 # === Шаг 4. Эксперт ===
 @dp.callback_query(F.data == "step_expert")
 async def step_expert(callback: types.CallbackQuery):
+    # keyboard = InlineKeyboardMarkup(inline_keyboard=[
+    #     [InlineKeyboardButton(text="📊 Эксперт по футболу", callback_data="exp_Football_Africa")],
+    #     [InlineKeyboardButton(text="📊 Эксперт по киберспорту", callback_data="exp_Cybersport_Gamesport")],
+    #     [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
+    #     [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
+    #     [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
+    # ])
+
     # Создаём кнопки экспертов динамически
     expert_buttons = [
         [InlineKeyboardButton(text=f"📊 {data['name']}", callback_data=f"exp_{key}")]
@@ -279,11 +287,11 @@ async def step_expert(callback: types.CallbackQuery):
 
     # Итоговая клавиатура
     keyboard = InlineKeyboardMarkup(inline_keyboard=expert_buttons + extra_buttons)
-    
+
     await safe_edit_message(
         callback,
         "🎯 А вот и ссылка на экспертов.📊\n"
-        "Перейди в канал и попроси доступ к прогнозам, чтобы получить сегодняшние рекомендации и первую стратегию.\n\n"
+        "Переходи по ссылке и попроси доступ к прогнозам, чтобы получить сегодняшние рекомендации и первую стратегию.\n\n"
         "Иногда мы добавляем новые бонусы от букмекеров, поэтому ждем тебя снова.\n"
         "И не забудь прочитать советы перед тем как ставить.\n",
         keyboard
@@ -294,16 +302,27 @@ async def on_expert_click(callback: types.CallbackQuery):
     # Пример: exp_Football_Africa → Football_Africa
     exp_key = callback.data.split("_", 1)[1]
     user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_key
+    # exp_name = callback.data.split("_", 1)[1]
+    # user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_name
+
+    # Логируем
+    # await log_to_google_async(callback.from_user, "EXPERT_CLICK", exp_name)
 
     expert = EXPERTS.get(exp_key)
     if not expert:
         await callback.message.answer("❌ Эксперт не найден")
         return
 
-    await callback.message.answer(
-        f"📊 <b>{expert['name']}</b>: {expert['link']}"
+    await callback.message.edit_text(
+        f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}", parse_mode="HTML"
     )
     await callback.answer()
+
+    # # Отправляем ссылку
+    # await callback.message.answer(
+    #     f"📊 Эксперт по <b>{exp_name}</b>: {Expert_LINKS[exp_name]}"
+    # )
+    # await callback.answer()
 
 # === Шаг 5. Советы ===
 @dp.callback_query(F.data == "step_tips")
