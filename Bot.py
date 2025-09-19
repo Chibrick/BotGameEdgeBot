@@ -254,9 +254,9 @@ async def why_free(callback: types.CallbackQuery):
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 1", callback_data="bk_Fonbet")],
-        [InlineKeyboardButton(text="🔗 2", callback_data="bk_1xbet")],
-        [InlineKeyboardButton(text="🔗 3", callback_data="bk_Pari")],
+        [InlineKeyboardButton(text="🔗 1", callback_data="bk_1")],
+        [InlineKeyboardButton(text="🔗 2", callback_data="bk_2")],
+        [InlineKeyboardButton(text="🔗 3", callback_data="bk_3")],
         [InlineKeyboardButton(text="⏭ Точка", callback_data="step_expert")]
     ])
     await safe_edit_message(
