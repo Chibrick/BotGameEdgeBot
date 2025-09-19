@@ -24,8 +24,8 @@ user_choices = {}  # { user_id: {"bk": "", "expert": ""} }
 # ссылки на экспертов
 EXPERTS = {
     "Football_Africa": {
-        "name": "Эксперт по футболу",
-        "link": "https://t.me/assistantafrica"
+        "name": "Эксперт",
+        "link": "https://dzen.ru/?yredirect=true"
     },
     # "Cybersport_Gamesport": {
     #     "name": "Аналитика по киберспорту",
@@ -37,9 +37,9 @@ EXPERTS = {
 
 # Партнёрские ссылки на БК
 BK_LINKS = {
-    "Fonbet": "https://chibrick.github.io/Fonbet/",
-    "1xbet": "https://chibrick.github.io/1xbet/",
-    "Pari": "https://chibrick.github.io/Pari/"
+    "1": "https://dzen.ru/?yredirect=true",
+    "2": "https://dzen.ru/?yredirect=true",
+    "3": "https://dzen.ru/?yredirect=true"
 }
 
 # Добавляем новые типы событий
@@ -229,16 +229,11 @@ async def send_welcome(message: types.Message):
     log_to_sheets([now, str(user_id), username, first_name, "", "START", "/start", "", "", ref])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
-        [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")]
+        [InlineKeyboardButton(text="🎁 Сюрприз", callback_data="bonus")],
+        [InlineKeyboardButton(text="ℹ️ Инфа", callback_data="why_free")]
     ])
     await message.answer(
-        "🔥 Добро пожаловать!\n\n"
-        "Здесь ты получаешь:\n"
-        "✅ Бесплатные бонусы от букмекеров\n"
-        "✅ Прогнозы от экспертов, чтобы выигрывать чаще\n"
-        "✅ Отзывы и отчеты, если еще не уверен\n\n"
-        "Выбирай бонус и начинай зарабатывать уже сегодня ⬇️",
+        "🔥 Добро пожаловать!",
         reply_markup=keyboard
     )
 
@@ -246,15 +241,12 @@ async def send_welcome(message: types.Message):
 @dp.callback_query(F.data == "why_free")
 async def why_free(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
-        [InlineKeyboardButton(text="⏭ Эксперт", callback_data="step_expert")]
+        [InlineKeyboardButton(text="🎁 Сюрприз", callback_data="bonus")],
+        [InlineKeyboardButton(text="⏭ Точка", callback_data="step_expert")]
     ])
     await safe_edit_message(
         callback,
-        "💡 Секрет простой:\n"
-        "– Ты играешь и выигрываешь по прогнозам.\n"
-        "– Эксперт дает прогноз и получает бонус.\n\n"
-        "👉 Поэтому нам выгодно, чтобы ты выигрывал и оставался с нами 👍",
+        "💡 Секрет простой:\n",
         keyboard
     )
 
@@ -262,17 +254,14 @@ async def why_free(callback: types.CallbackQuery):
 @dp.callback_query(F.data.in_(["step_bk", "bonus"]))
 async def step_bk(callback: types.CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", callback_data="bk_Fonbet")],
-        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="bk_1xbet")],
-        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="bk_Pari")],
-        [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
+        [InlineKeyboardButton(text="🔗 1", callback_data="bk_Fonbet")],
+        [InlineKeyboardButton(text="🔗 2", callback_data="bk_1xbet")],
+        [InlineKeyboardButton(text="🔗 3", callback_data="bk_Pari")],
+        [InlineKeyboardButton(text="⏭ Точка", callback_data="step_expert")]
     ])
     await safe_edit_message(
         callback,
-        "🚀 Переходи по ссылке, регистрируйся в БК и активируй бонус при пополнении.\n"
-        "⚡ Вот несколько контор, которые ты можешь добавить.\n"
-        "‼ Советуем распределить деньги по нескольким компаниям.\n\n"
-        "⏭ Как закончишь, переходи к экспертам.",
+        "🚀 Ракета\n",
         keyboard
     )
 
@@ -286,7 +275,7 @@ async def on_bk_click(callback: types.CallbackQuery):
 
     # Отправляем ссылку на БК
     await callback.message.answer(
-        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\n{BK_LINKS[bk_name]}", parse_mode="HTML"
+        f"🔗 <b>{bk_name}</b> — вот твоя ссылка\n{BK_LINKS[bk_name]}", parse_mode="HTML"
     )
     await callback.answer()
 
@@ -309,8 +298,8 @@ async def step_expert(callback: types.CallbackQuery):
 
     # Добавляем дополнительные кнопки
     extra_buttons = [
-        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
-        [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")],
+        [InlineKeyboardButton(text="🎁 Сюрприз", callback_data="bonus")],
+        [InlineKeyboardButton(text="ℹ️ Инфа", callback_data="why_free")],
         [InlineKeyboardButton(text="📌 Советы", callback_data="step_tips")]
     ]
 
@@ -319,10 +308,7 @@ async def step_expert(callback: types.CallbackQuery):
 
     await safe_edit_message(
         callback,
-        "🎯 А вот и ссылка на экспертов.📊\n"
-        "Переходи по ссылке и попроси доступ к прогнозам, чтобы получить сегодняшние рекомендации и первую стратегию.\n\n"
-        "Иногда мы добавляем новые бонусы от букмекеров, поэтому ждем тебя снова.\n"
-        "И не забудь прочитать советы перед тем как ставить.\n",
+        "🎯 А вот и Точка📊\n",
         keyboard
     )
 
@@ -362,11 +348,7 @@ async def step_tips(callback: types.CallbackQuery):
     ])
     await safe_edit_message(
         callback,
-        "⚠️ Перед тем как начать:\n"
-        "1️. Ставь сначала маленькие суммы — важно привыкнуть к системе.\n"
-        "2️. Для исключения блокировки аккаунта, иногда нужно специально проиграть ставку.\n"
-        "3. Если вдруг что-то пойдёт не так — эксперт может предложит компенсацию/совет, чтобы вернуть доверие\n\n"
-        "👉 Твой плюс = наш плюс 💪",
+        "⚠️ Советы:\n",
         keyboard
     )
 
