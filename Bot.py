@@ -172,7 +172,8 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                     if offer not in row_vals[IDX_OFFER_NO - 1]:
                         row_vals[IDX_OFFER_NO - 1] = f"{row_vals[IDX_OFFER_NO - 1]};{offer}"
 
-            range_name = f"A{row_index}:AA{row_index}"
+            range_name = f"A{row_index}:BK{row_index}"
+            await ensure_rows(sheet_clients, row_index)
             await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Обновлена строка {row_index} для user {user_id}")
         else:
@@ -193,6 +194,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             # I..O checkboxes left empty            
 
             range_name = f"A{next_row}:AA{next_row}"
+            await ensure_rows(sheet_clients, row_index)
             await run_in_executor(sheet_clients.update, range_name, [new_row], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Добавлена новая строка {next_row} для user {user_id}")
 
@@ -416,7 +418,7 @@ async def mark_offer_taken_for_user(row_index, offer_id):
                 row_vals[col_idx - 1] = "TRUE"
 
         # обновляем всю строку A..Q
-        range_name = f"A{row_index}:Q{row_index}"
+        range_name = f"A{row_index}:BK{row_index}"
         await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
         logger.info(f"Offer {offer_id} marked for row {row_index}")
         return True
@@ -424,6 +426,11 @@ async def mark_offer_taken_for_user(row_index, offer_id):
         logger.error(f"mark_offer_taken_for_user error: {e}")
         logger.error(traceback.format_exc())
         return False
+
+async def ensure_rows(sheet, needed_rows):
+    current_rows = sheet.row_count
+    if needed_rows > current_rows:
+        await run_in_executor(sheet.add_rows, needed_rows - current_rows)
 
 def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
