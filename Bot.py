@@ -202,9 +202,9 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
 
 
 async def log_event(user: types.User, event_type: str, content: str):
-    """Добавляет запись в 'Логи от бота' (append)"""
+    """Запись в лист 'Логи от бота'"""
     if not sheet_logs:
-        logger.error("sheet_logs не инициализирован")
+        logger.error("❌ sheet_logs не инициализирован")
         return False
     try:
         now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
@@ -217,11 +217,11 @@ async def log_event(user: types.User, event_type: str, content: str):
             event_type,
             content[:300]
         ]
-        await run_in_executor(lambda: sheet_logs.append_row(row, value_input_option='USER_ENTERED'))
-        logger.info(f"Лог добавлен: {event_type} для {user.id}")
+        await run_in_executor(lambda: sheet_logs.append_row(row, value_input_option="USER_ENTERED"))
+        logger.info(f"✅ Лог добавлен: {event_type} для {user.id}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при log_event: {e}")
+        logger.error(f"Ошибка log_event: {e}")
         logger.error(traceback.format_exc())
         return False
 
@@ -353,6 +353,25 @@ async def choose_offer(callback: types.CallbackQuery):
     await callback.message.answer(f"✅ Ты выбрал категорию: {cat}. Дальше я выдам список офферов этой категории.")
     await callback.answer()
 
+@dp.message(Command("force_reset"))
+async def force_reset(message: types.Message):
+    """Принудительный сброс webhook и очистка апдейтов"""
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.get_me()  # Проверяем соединение
+        await message.answer("✅ Webhook сброшен, все апдейты очищены!")
+        logger.info(f"Принудительный сброс выполнен пользователем {message.from_user.id}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при сбросе: {e}")
+        logger.error(f"Ошибка при принудительном сбросе: {e}")
+
+@dp.message(Command("test_log"))
+async def test_log(message: types.Message):
+    ok = await log_event(message.from_user, "TEST", "Проверка записи в логи")
+    if ok:
+        await message.answer("✅ Лог записан")
+    else:
+        await message.answer("❌ Ошибка при записи лога")
 
 # Healthcheck для Render
 async def handle(request):
