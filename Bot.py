@@ -101,19 +101,19 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
         else:
             # === создаем новую запись ===
             new_row = [
-                len(all_values),           # № клиента (A) = количество строк
-                user_id,                   # B
-                user.username or "",       # C
-                user.first_name or "",     # D
-                phone,                     # E
-                location,                  # F
-                ref,                       # G
-                offer,                     # H
-                "", "", "", "", "", "", "",  # I–O чекбоксы
-                status or "новый",         # P
+                len(all_values),            # № клиента (A) = количество строк
+                user_id,                    # B
+                user.username or "",        # C
+                user.first_name or "",      # D
+                phone,                      # E
+                location,                   # F
+                ref,                        # G
+                offer,                      # H
+                "", "", "", "", "", "", "",   # I–O чекбоксы
+                status or "новый",          # P
                 datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")  # Q
             ]
-            sheet_clients.append_row(new_row, value_input_option="USER_ENTERED")
+            await loop.run_in_executor(None, lambda: sheet_clients.append_row(new_row, value_input_option="USER_ENTERED"))
         return True
     except Exception as e:
         logger.error(f"Ошибка при обновлении клиента: {e}")
@@ -213,6 +213,18 @@ async def choose_offer(callback: types.CallbackQuery):
 
     await callback.message.answer(f"✅ Ты выбрал категорию: {cat}. Дальше я выдам список офферов этой категории.")
     await callback.answer()
+
+@dp.message(Command("force_reset"))
+async def force_reset(message: types.Message):
+    """Принудительный сброс webhook и очистка апдейтов"""
+    try:
+        await bot.delete_webhook(drop_pending_updates=True)
+        await bot.get_me()  # Проверяем соединение
+        await message.answer("✅ Webhook сброшен, все апдейты очищены!")
+        logger.info(f"Принудительный сброс выполнен пользователем {message.from_user.id}")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при сбросе: {e}")
+        logger.error(f"Ошибка при принудительном сбросе: {e}")
 
 # === Healthcheck для Render ===
 async def handle(request):
