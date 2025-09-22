@@ -39,8 +39,30 @@ dp = Dispatcher()
 
 # Google Sheets
 client = None
-sheet_clients = None
-sheet_logs = None
+sheet_clients = None   # "Клиенты - Партнерки"
+sheet_logs = None      # "Логи от бота"
+
+# Константы кол-во колонок и индексы (A..Q)
+NUM_COLUMNS = 17
+IDX_CLIENT_NO = 1   # A
+IDX_USER_ID = 2     # B
+IDX_USERNAME = 3    # C
+IDX_FIRST_NAME = 4  # D
+IDX_PHONE = 5       # E
+IDX_LOCATION = 6    # F
+IDX_MARK = 7        # G
+IDX_OFFER_NO = 8    # H
+# I..O = 9..15 (чекбоксы офферов)
+IDX_STATUS = 16     # P
+IDX_DATE = 17       # Q
+
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1pGc9kdpdFggwZlc3wairUBunou1BW_fw-D-heBViHic/edit#gid=0"
+
+
+async def run_in_executor(fn, *args, **kwargs):
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
+
 
 async def init_google_sheets():
     """Инициализация Google Sheets"""
@@ -53,13 +75,14 @@ async def init_google_sheets():
             "https://www.googleapis.com/auth/drive"
         ]
         creds_json = os.getenv("GOOGLE_CREDENTIALS")
+        if not creds_json:
+            logger.error("GOOGLE_CREDENTIALS не найдены в переменных окружения!")
+            return False
         creds_dict = json.loads(creds_json)
         creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
         client = gspread.authorize(creds)
 
-        spreadsheet = client.open_by_url(
-            "https://docs.google.com/spreadsheets/d/1pGc9kdpdFggwZlc3wairUBunou1BW_fw-D-heBViHic/edit#gid=0"
-        )
+        spreadsheet = await run_in_executor(client.open_by_url, SPREADSHEET_URL)
         sheet_clients = spreadsheet.worksheet("Клиенты - Партнерки")
         sheet_logs = spreadsheet.worksheet("Логи от бота")
 
@@ -67,98 +90,152 @@ async def init_google_sheets():
         return True
     except Exception as e:
         logger.error(f"Ошибка при инициализации Google Sheets: {e}")
+        logger.error(traceback.format_exc())
         return False
 
 
-async def update_client(user: types.User, phone="", location="", offer="", status="", ref=""):
-    """Добавить или обновить клиента в таблице"""
+def _pad_row(row, length):
+    """Pad list to exact length"""
+    if row is None:
+        row = []
+    row = list(row)
+    if len(row) < length:
+        row += [""] * (length - len(row))
+    else:
+        row = row[:length]
+    return row
+
+
+async def find_user_row_by_id(user_id: str):
+    """Ищет строку (номер) по user_id в колонке B. Возвращает None если не найдено"""
     if not sheet_clients:
+        return None
+    try:
+        col_vals = await run_in_executor(sheet_clients.col_values, IDX_USER_ID)
+        # col_values returns list with header as first element usually
+        for i, v in enumerate(col_vals, start=1):
+            if v == user_id:
+                return i
+        return None
+    except Exception as e:
+        logger.error(f"find_user_row_by_id error: {e}")
+        return None
+
+
+async def update_client(user: types.User, phone="", location="", offer="", status="", mark="", offer_no=""):
+    """
+    Добавляет или полностью обновляет строку клиента (A..Q).
+    Если запись есть — загружаем её, обновляем поля и перезаписываем весь диапазон A{row}:Q{row}.
+    Если нет — добавляем новую строку в A{next_row}:Q{next_row}.
+    """
+    if not sheet_clients:
+        logger.error("sheet_clients не инициализирован")
         return False
     try:
-        loop = asyncio.get_event_loop()
-        all_values = await loop.run_in_executor(None, sheet_clients.get_all_values)
-
         user_id = str(user.id)
-        row_index = None
-        for i, row in enumerate(all_values, start=2):  # со 2-й строки (1-я заголовки)
-            if row and len(row) > 1 and row[1] == user_id:
-                row_index = i
-                break
+        row_index = await find_user_row_by_id(user_id)
 
         if row_index:
-            # === обновляем существующую запись ===
+            # обновление существующей строки
+            row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+            row_vals = _pad_row(row_vals, NUM_COLUMNS)
+
+            # Обновляем поля (только если переданы)
+            if user.username:
+                row_vals[IDX_USERNAME - 1] = user.username
+            if user.first_name:
+                row_vals[IDX_FIRST_NAME - 1] = user.first_name
             if phone:
-                sheet_clients.update_cell(row_index, 5, phone)      # E
+                row_vals[IDX_PHONE - 1] = phone
             if location:
-                sheet_clients.update_cell(row_index, 6, location)   # F
-            if ref:
-                sheet_clients.update_cell(row_index, 7, ref)        # G
+                row_vals[IDX_LOCATION - 1] = location
+            if mark:
+                row_vals[IDX_MARK - 1] = mark
+            if offer_no:
+                row_vals[IDX_OFFER_NO - 1] = offer_no
             if offer:
-                sheet_clients.update_cell(row_index, 8, offer)      # H
+                # добавляем оффер в H (№ оффера) и/или можно ставить галочки I..O
+                # проще: если H пуст — пишем offer, иначе оставляем (или перезаписываем)
+                if not row_vals[IDX_OFFER_NO - 1]:
+                    row_vals[IDX_OFFER_NO - 1] = offer
+                else:
+                    # также можно дописать в H через ;
+                    if offer not in row_vals[IDX_OFFER_NO - 1]:
+                        row_vals[IDX_OFFER_NO - 1] = f"{row_vals[IDX_OFFER_NO - 1]};{offer}"
+
             if status:
-                sheet_clients.update_cell(row_index, 16, status)    # P
-            await loop.run_in_executor(None, lambda: sheet_clients.update_cell(row_index, 17, datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"))) # Q
+                row_vals[IDX_STATUS - 1] = status
+
+            row_vals[IDX_DATE - 1] = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
+
+            range_name = f"A{row_index}:Q{row_index}"
+            await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
+            logger.info(f"Обновлена строка {row_index} для user {user_id}")
         else:
-            # === создаем новую запись ===
-            new_row = [
-                len(all_values),            # № клиента (A) = количество строк
-                user_id,                    # B
-                user.username or "",        # C
-                user.first_name or "",      # D
-                phone,                      # E
-                location,                   # F
-                ref,                        # G
-                offer,                      # H
-                "", "", "", "", "", "", "", # I–O чекбоксы
-                status or "новый",          # P
-                datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")  # Q
-            ]
+            # новая запись
+            all_values = await run_in_executor(sheet_clients.get_all_values)
+            next_row = len(all_values) + 1  # next available row index
 
-            # Записываем точно в нужные ячейки
-            range_name = f"A{next_row}:AA{next_row}"
-        
-            # Правильный способ: создаем функцию-обертку
-            def update_sheet():
-                sheet_clients.update(range_name, [new_row], value_input_option='USER_ENTERED')
+            client_no = next_row - 1  # первый data row will be 1 if header exists
+            new_row = [""] * NUM_COLUMNS
+            new_row[IDX_CLIENT_NO - 1] = str(client_no)
+            new_row[IDX_USER_ID - 1] = user_id
+            new_row[IDX_USERNAME - 1] = user.username or ""
+            new_row[IDX_FIRST_NAME - 1] = user.first_name or ""
+            new_row[IDX_PHONE - 1] = phone or ""
+            new_row[IDX_LOCATION - 1] = location or ""
+            new_row[IDX_MARK - 1] = mark or ""
+            new_row[IDX_OFFER_NO - 1] = offer_no or offer or ""
+            # I..O checkboxes left empty
+            new_row[IDX_STATUS - 1] = status or "новый"
+            new_row[IDX_DATE - 1] = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
 
-            await loop.run_in_executor(None, update_sheet)
+            range_name = f"A{next_row}:Q{next_row}"
+            await run_in_executor(sheet_clients.update, range_name, [new_row], {'valueInputOption': 'USER_ENTERED'})
+            logger.info(f"Добавлена новая строка {next_row} для user {user_id}")
 
         return True
     except Exception as e:
-        logger.error(f"Ошибка при обновлении клиента: {e}")
+        logger.error(f"Ошибка при update_client: {e}")
+        logger.error(traceback.format_exc())
         return False
 
 
 async def log_event(user: types.User, event_type: str, content: str):
-    """Логируем действие"""
+    """Добавляет запись в 'Логи от бота' (append)"""
     if not sheet_logs:
+        logger.error("sheet_logs не инициализирован")
         return False
     try:
         now = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
-        row_data = [
+        row = [
             now,
             str(user.id),
             user.username or "",
             user.first_name or "",
             user.last_name or "",
             event_type,
-            content[:200]
+            content[:300]
         ]
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, lambda: sheet_logs.append_row(row_data, value_input_option="USER_ENTERED"))
+        await run_in_executor(sheet_logs.append_row, row, {'valueInputOption': 'USER_ENTERED'})
+        logger.info(f"Лог добавлен: {event_type} для {user.id}")
         return True
     except Exception as e:
-        logger.error(f"Ошибка при записи лога: {e}")
+        logger.error(f"Ошибка при log_event: {e}")
+        logger.error(traceback.format_exc())
         return False
 
-# === Старт ===
+
+# === Handlers ===
+
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     ref = "без_метки"
     if len(message.text.split()) > 1:
         ref = message.text.split()[1]
 
-    await update_client(message.from_user, status="новый")
+    # Регистрируем/обновляем клиента и пишем лог
+    await update_client(message.from_user, status="новый", mark=ref)
     await log_event(message.from_user, "START", ref)
 
     kb = ReplyKeyboardMarkup(
@@ -170,10 +247,13 @@ async def cmd_start(message: types.Message):
         reply_markup=kb
     )
 
-# === Получение телефона ===
+
 @dp.message(F.contact)
 async def get_phone(message: types.Message):
-    phone = message.contact.phone_number
+    try:
+        phone = message.contact.phone_number
+    except Exception:
+        phone = message.text.strip()
     await update_client(message.from_user, phone=phone)
     await log_event(message.from_user, "PHONE", phone)
 
@@ -183,7 +263,7 @@ async def get_phone(message: types.Message):
     )
     await message.answer("✅ Спасибо! Теперь отправь геолокацию:", reply_markup=kb)
 
-# === Получение геолокации ===
+
 @dp.message(F.location)
 async def get_location(message: types.Message):
     loc = f"{message.location.latitude},{message.location.longitude}"
@@ -202,40 +282,79 @@ async def get_location(message: types.Message):
         reply_markup=keyboard
     )
 
-# === Пример кнопок офферов ===
+
+@dp.callback_query(F.data == "why_free")
+async def why_free(callback: types.CallbackQuery):
+    await log_event(callback.from_user, "BTN", "why_free")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
+        [InlineKeyboardButton(text="⏭ Эксперт", callback_data="step_expert")]
+    ])
+    await callback.message.edit_text(
+        "💡 Секрет простой:\n"
+        "– Ты играешь и выигрываешь по прогнозам.\n"
+        "– Эксперт даёт прогноз и получает бонус.\n\n"
+        "👉 Поэтому нам выгодно, чтобы ты выигрывал и оставался с нами 👍",
+        reply_markup=kb
+    )
+
+
+@dp.callback_query(F.data.in_(["step_bk", "bonus"]))
+async def step_bk(callback: types.CallbackQuery):
+    await log_event(callback.from_user, "BTN", "step_bk/bonus")
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", callback_data="bk_Fonbet")],
+        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="bk_1xbet")],
+        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="bk_Pari")],
+        [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
+    ])
+    await callback.message.edit_text(
+        "🚀 Переходи по ссылке, регистрируйся в БК и активируй бонус при пополнении.\n"
+        "⚡ Вот несколько контор, которые ты можешь добавить.\n"
+        "‼ Советуем распределить деньги по нескольким компаниям.\n\n"
+        "⏭ Как закончишь, переходи к экспертам.",
+        reply_markup=keyboard
+    )
+
+
+@dp.callback_query(F.data.startswith("bk_"))
+async def on_bk_click(callback: types.CallbackQuery):
+    bk_name = callback.data.split("_", 1)[1]
+    await update_client(callback.from_user, offer=bk_name, status="взял оффер БК")
+    await log_event(callback.from_user, "BK_CLICK", bk_name)
+
+    # здесь вместо callback.message.edit_text - отправляем приватное сообщение с ссылкой
+    # (так пользователь видит ссылку внизу, а не сообщение edit)
+    await callback.message.answer(
+        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\nhttps://example.com/{bk_name}",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+
 @dp.callback_query(F.data == "bonus")
-async def step_bonus(callback: types.CallbackQuery):
+async def show_categories(callback: types.CallbackQuery):
+    await log_event(callback.from_user, "BTN", "bonus_menu")
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💳 Дебетовая карта", callback_data="offer_debit")],
         [InlineKeyboardButton(text="💳 Кредитная карта", callback_data="offer_credit")],
         [InlineKeyboardButton(text="🎲 Регистрация в БК", callback_data="offer_bk")]
     ])
     await callback.message.answer("Выбери категорию оффера:", reply_markup=kb)
-    await log_event(callback.from_user, "BTN", "Выбор категории")
+    await callback.answer()
 
-# === Заглушки для офферов ===
+
 @dp.callback_query(F.data.startswith("offer_"))
 async def choose_offer(callback: types.CallbackQuery):
     cat = callback.data.split("_", 1)[1]
+    # В H мы запишем название категории/оффера
     await update_client(callback.from_user, offer=cat, status="оффер выбран")
     await log_event(callback.from_user, "OFFER", cat)
-
     await callback.message.answer(f"✅ Ты выбрал категорию: {cat}. Дальше я выдам список офферов этой категории.")
     await callback.answer()
 
-@dp.message(Command("force_reset"))
-async def force_reset(message: types.Message):
-    """Принудительный сброс webhook и очистка апдейтов"""
-    try:
-        await bot.delete_webhook(drop_pending_updates=True)
-        await bot.get_me()  # Проверяем соединение
-        await message.answer("✅ Webhook сброшен, все апдейты очищены!")
-        logger.info(f"Принудительный сброс выполнен пользователем {message.from_user.id}")
-    except Exception as e:
-        await message.answer(f"❌ Ошибка при сбросе: {e}")
-        logger.error(f"Ошибка при принудительном сбросе: {e}")
 
-# === Healthcheck для Render ===
+# Healthcheck для Render
 async def handle(request):
     return web.Response(text="I'm alive!")
 
@@ -249,10 +368,13 @@ async def start_web_server():
     await site.start()
     logging.info(f"Веб-сервер запущен на порту {port}")
 
-# === Main ===
+# Main
 async def main():
     logger.info("Запуск бота...")
-    await init_google_sheets()
+    ok = await init_google_sheets()
+    if not ok:
+        logger.error("Не удалось инициализировать Google Sheets. Бот будет работать, но без записи.")
+    # старт веб-сервера для Render healthcheck
     asyncio.create_task(start_web_server())
     await dp.start_polling(bot, drop_pending_updates=True)
 
