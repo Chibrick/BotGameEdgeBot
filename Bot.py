@@ -42,6 +42,13 @@ client = None
 sheet_clients = None   # "Клиенты - Партнерки"
 sheet_logs = None      # "Логи от бота"
 
+sheet_offers = None
+OFFERS_BY_CATEGORY = {}   # { "Дебетовые карты": [offer_obj, ...], ... }
+OFFERS_BY_ID = {}         # { "1": offer_obj, ... }
+CLIENT_OFFER_COL_MAP = {} # { offer_id_int: column_index_in_clients_sheet }
+PENDING_OFFER = {}        # { user_id: offer_id } временная память ожидающих ввода кода
+PAGE_SIZE = 5
+
 # Константы кол-во колонок и индексы (A..Q)
 NUM_COLUMNS = 17
 IDX_CLIENT_NO = 1   # A
@@ -49,15 +56,25 @@ IDX_USER_ID = 2     # B
 IDX_USERNAME = 3    # C
 IDX_FIRST_NAME = 4  # D
 IDX_PHONE = 5       # E
-IDX_LOCATION = 6    # F
+IDX_DATE = 6        # F
 IDX_MARK = 7        # G
 IDX_OFFER_NO = 8    # H
 # I..O = 9..15 (чекбоксы офферов)
-IDX_STATUS = 16     # P
-IDX_DATE = 17       # Q
+
+OFFERS = {
+    "debit": {
+        "tbank_black": {"name": "Дебетовая карта Black (Т-Банк)", "link": "https://..."},
+        "sber": {"name": "Сбербанк Дебетовая", "link": "https://..."},
+    },
+    "credit": {
+        "tbank_platinum": {"name": "Кредитная карта Platinum (Т-Банк)", "link": "https://..."},
+    },
+    "bk": {
+        "fonbet": {"name": "Fonbet Бонус", "link": "https://..."},
+    }
+}
 
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1pGc9kdpdFggwZlc3wairUBunou1BW_fw-D-heBViHic/edit#gid=0"
-
 
 async def run_in_executor(fn, *args, **kwargs):
     loop = asyncio.get_event_loop()
@@ -141,16 +158,8 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             row_vals = _pad_row(row_vals, NUM_COLUMNS)
 
             # Обновляем поля (только если переданы)
-            if user.username:
-                row_vals[IDX_USERNAME - 1] = user.username
-            if user.first_name:
-                row_vals[IDX_FIRST_NAME - 1] = user.first_name
             if phone:
                 row_vals[IDX_PHONE - 1] = phone
-            if location:
-                row_vals[IDX_LOCATION - 1] = location
-            if mark:
-                row_vals[IDX_MARK - 1] = mark
             if offer_no:
                 row_vals[IDX_OFFER_NO - 1] = offer_no
             if offer:
@@ -163,12 +172,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                     if offer not in row_vals[IDX_OFFER_NO - 1]:
                         row_vals[IDX_OFFER_NO - 1] = f"{row_vals[IDX_OFFER_NO - 1]};{offer}"
 
-            if status:
-                row_vals[IDX_STATUS - 1] = status
-
-            row_vals[IDX_DATE - 1] = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
-
-            range_name = f"A{row_index}:Q{row_index}"
+            range_name = f"A{row_index}:AA{row_index}"
             await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Обновлена строка {row_index} для user {user_id}")
         else:
@@ -183,14 +187,12 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             new_row[IDX_USERNAME - 1] = user.username or ""
             new_row[IDX_FIRST_NAME - 1] = user.first_name or ""
             new_row[IDX_PHONE - 1] = phone or ""
-            new_row[IDX_LOCATION - 1] = location or ""
+            new_row[IDX_DATE - 1] = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
             new_row[IDX_MARK - 1] = mark or ""
             new_row[IDX_OFFER_NO - 1] = offer_no or offer or ""
-            # I..O checkboxes left empty
-            new_row[IDX_STATUS - 1] = status or "новый"
-            new_row[IDX_DATE - 1] = datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")
+            # I..O checkboxes left empty            
 
-            range_name = f"A{next_row}:Q{next_row}"
+            range_name = f"A{next_row}:AA{next_row}"
             await run_in_executor(sheet_clients.update, range_name, [new_row], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Добавлена новая строка {next_row} для user {user_id}")
 
@@ -225,6 +227,260 @@ async def log_event(user: types.User, event_type: str, content: str):
         logger.error(traceback.format_exc())
         return False
 
+def _find_col_index_by_keywords(headers, keywords):
+    """Возвращает индекс колонки (1-based) в headers, содержащий одно из keywords. None если не найдено."""
+    for i, h in enumerate(headers, start=1):
+        h_str = (h or "").strip().lower()
+        for kw in keywords:
+            if kw in h_str:
+                return i
+    return None
+
+async def load_offers_from_sheet():
+    """Загружает офферы из листа 'Офферы' в OFFERS_BY_CATEGORY и OFFERS_BY_ID.
+       Ожидает, что init_google_sheets уже выполнен и sheet_offers доступен.
+    """
+    global OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
+    if not sheet_offers:
+        logger.error("sheet_offers не инициализирован")
+        return False
+    try:
+        rows = await run_in_executor(sheet_offers.get_all_values)
+        if not rows or len(rows) < 2:
+            logger.warning("Лист 'Офферы' пуст или нет данных")
+            OFFERS_BY_CATEGORY = {}
+            OFFERS_BY_ID = {}
+            return True
+
+        header = rows[0]
+        # определяем колонки по ключевым словам (robust)
+        id_col = _find_col_index_by_keywords(header, ["№", "номер", "№ оффера", "№оффера", "id"])
+        cat_col = _find_col_index_by_keywords(header, ["категори", "category", "категория"])
+        name_col = _find_col_index_by_keywords(header, ["назван", "name", "название"])
+        partner_link_col = _find_col_index_by_keywords(header, ["партн", "партнёр", "partner", "партнёрская ссылка", "партнёрская"])
+        code_col = _find_col_index_by_keywords(header, ["код", "code"])
+        direct_link_col = _find_col_index_by_keywords(header, ["ссылка", "link"])
+
+        # fallback: если какие-то не определились — ставим дефолты (A..L)
+        id_col = id_col or 1
+        cat_col = cat_col or 2
+        direct_link_col = direct_link_col or 3
+        name_col = name_col or 4
+        partner_link_col = partner_link_col or direct_link_col
+        code_col = code_col or len(header)  # если нет, ставим последнюю колонку
+
+        OFFERS_BY_CATEGORY = {}
+        OFFERS_BY_ID = {}
+
+        for idx, row in enumerate(rows[1:], start=2):
+            # безопасно получить значение по колонке
+            def get(r, col_idx):
+                try:
+                    return r[col_idx-1].strip()
+                except Exception:
+                    return ""
+
+            offer_id = get(row, id_col)
+            if not offer_id:
+                continue
+            # normalize id as string
+            offer_id = str(offer_id)
+            category = get(row, cat_col) or "Без категории"
+            name = get(row, name_col) or f"Оффер {offer_id}"
+            partner_link = get(row, partner_link_col) or get(row, direct_link_col)
+            code = get(row, code_col) or ""
+            offer_obj = {
+                "id": offer_id,
+                "category": category,
+                "name": name,
+                "partner_link": partner_link,
+                "code": code,
+                "row": idx  # реальная строка в листе "Офферы"
+            }
+            OFFERS_BY_ID[offer_id] = offer_obj
+            OFFERS_BY_CATEGORY.setdefault(category, []).append(offer_obj)
+
+        # сортируем офферы в каждой категории по числовому id (если можно)
+        for k, lst in OFFERS_BY_CATEGORY.items():
+            try:
+                lst.sort(key=lambda x: int(x["id"]))
+            except:
+                lst.sort(key=lambda x: x["id"])
+
+        logger.info(f"Загружено офферов: {len(OFFERS_BY_ID)} категорий: {len(OFFERS_BY_CATEGORY)}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка load_offers_from_sheet: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+async def build_client_offer_col_map():
+    """Считает маппинг: offer_id (int) -> column_index (в листе 'Клиенты - Партнерки'),
+       если в шапке есть колонки с номерами офферов.
+    """
+    global CLIENT_OFFER_COL_MAP, sheet_clients
+    CLIENT_OFFER_COL_MAP = {}
+    if not sheet_clients:
+        logger.error("sheet_clients не инициализирован")
+        return {}
+    try:
+        header = await run_in_executor(sheet_clients.row_values, 1)
+        # header is list of header values; ищем ячейки, которые являются числом (1,2,3...)
+        for i, h in enumerate(header, start=1):
+            if not h:
+                continue
+            hs = h.strip()
+            # если значение точно число (например "1" или "10"), мапим
+            if hs.isdigit():
+                CLIENT_OFFER_COL_MAP[int(hs)] = i
+        logger.info(f"Client offer col map built: {CLIENT_OFFER_COL_MAP}")
+        return CLIENT_OFFER_COL_MAP
+    except Exception as e:
+        logger.error(f"Ошибка build_client_offer_col_map: {e}")
+        logger.error(traceback.format_exc())
+        return {}
+
+async def _get_client_row_index(user_id: str):
+    """Возвращает номер строки в sheet_clients (1-based) где в колонке B (IDX_USER_ID) содержится user_id"""
+    if not sheet_clients:
+        return None
+    try:
+        col_vals = await run_in_executor(sheet_clients.col_values, IDX_USER_ID)
+        for i, v in enumerate(col_vals, start=1):
+            if v == user_id:
+                return i
+        return None
+    except Exception as e:
+        logger.error(f"_get_client_row_index error: {e}")
+        return None
+
+async def get_user_taken_offers_by_row(row_index):
+    """Возвращает set() числовых id офферов, которые отмечены для пользователя в строке row_index.
+       Смотрим: 1) поле H (IDX_OFFER_NO) — если там список '1;3;10', 2) чекбоксы по CLIENT_OFFER_COL_MAP.
+    """
+    taken = set()
+    if not sheet_clients:
+        return taken
+    try:
+        row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+        row_vals = _pad_row(row_vals, NUM_COLUMNS)
+        # поле H (IDX_OFFER_NO) может содержать "1;3;10"
+        raw = row_vals[IDX_OFFER_NO - 1] or ""
+        for x in raw.replace(" ", "").split(";"):
+            if x.strip().isdigit():
+                taken.add(x.strip())
+        # чекбоксы
+        if CLIENT_OFFER_COL_MAP:
+            for offer_id, col_idx in CLIENT_OFFER_COL_MAP.items():
+                try:
+                    v = row_vals[col_idx-1]
+                except:
+                    v = ""
+                if str(v).strip().lower() in ("true", "1", "да", "x", "x "):
+                    taken.add(str(offer_id))
+        return taken
+    except Exception as e:
+        logger.error(f"get_user_taken_offers_by_row error: {e}")
+        logger.error(traceback.format_exc())
+        return taken
+
+async def mark_offer_taken_for_user(row_index, offer_id):
+    """Помечает оффер за пользователем: 
+       - дописывает offer_id в H (если не было)
+       - ставит чекбокс TRUE в соответствующей колонке, если она присутствует
+    """
+    if not sheet_clients:
+        return False
+    try:
+        # получаем текущую строку
+        row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+        row_vals = _pad_row(row_vals, NUM_COLUMNS)
+
+        # обновим поле H (IDX_OFFER_NO)
+        already = row_vals[IDX_OFFER_NO - 1] or ""
+        parts = [p for p in [s.strip() for s in already.split(";")] if p]
+        if str(offer_id) not in parts:
+            parts.append(str(offer_id))
+        new_h = ";".join(parts)
+        row_vals[IDX_OFFER_NO - 1] = new_h
+
+        # если есть колонка чекбокса для этого оффера — отметим
+        if CLIENT_OFFER_COL_MAP:
+            try:
+                offer_int = int(offer_id)
+                col_idx = CLIENT_OFFER_COL_MAP.get(offer_int)
+            except:
+                col_idx = None
+            if col_idx:
+                # пометим TRUE в колонке col_idx
+                row_vals[col_idx - 1] = "TRUE"
+
+        # обновляем всю строку A..Q
+        range_name = f"A{row_index}:Q{row_index}"
+        await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
+        logger.info(f"Offer {offer_id} marked for row {row_index}")
+        return True
+    except Exception as e:
+        logger.error(f"mark_offer_taken_for_user error: {e}")
+        logger.error(traceback.format_exc())
+        return False
+
+def _build_offers_keyboard(offers_page, category, page, total_pages):
+    """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
+    kb = InlineKeyboardMarkup()
+    for off in offers_page:
+        text = f"{off['id']}. {off['name']}"
+        kb.add(InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}"))
+    # навигация
+    nav_row = []
+    if page > 1:
+        nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"offers_page:{category}:{page-1}"))
+    if page < total_pages:
+        nav_row.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"offers_page:{category}:{page+1}"))
+    if nav_row:
+        kb.row(*nav_row)
+    kb.add(InlineKeyboardButton(text="◀️ Вернуться", callback_data="back_to_categories"))
+    return kb
+
+async def show_offers_page(callback, category, page=1):
+    """Отображает страницу офферов категории пользователю, учитывая те, что уже взял."""
+    # загружаем офферы данной категории
+    lst = OFFERS_BY_CATEGORY.get(category, [])
+    if not lst:
+        await callback.message.answer("В этой категории пока нет офферов.")
+        await callback.answer()
+        return
+
+    # получаем ряд пользователя
+    user_id = str(callback.from_user.id)
+    row_index = await _get_client_row_index(user_id)
+    taken = set()
+    if row_index:
+        taken = await get_user_taken_offers_by_row(row_index)
+
+    # отфильтруем доступные офферы
+    available = [o for o in lst if o['id'] not in taken]
+    if not available:
+        await callback.message.answer("❗ Все офферы в этой категории вы уже брали.")
+        await callback.answer()
+        return
+
+    # пагинация
+    total = len(available)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page = max(1, min(page, total_pages))
+    start = (page - 1) * PAGE_SIZE
+    end = start + PAGE_SIZE
+    page_slice = available[start:end]
+
+    kb = _build_offers_keyboard(page_slice, category, page, total_pages)
+    await callback.message.answer(f"Категория: {category}\nСтраница {page}/{total_pages}\nВыберите оффер:", reply_markup=kb)
+    await callback.answer()
+
+
+
+
+
 
 # === Handlers ===
 
@@ -249,7 +505,7 @@ async def cmd_start(message: types.Message):
 
 
 @dp.message(F.contact)
-async def get_phone(message: types.Message):
+async def get_phone(callback: types.CallbackQuery):
     try:
         phone = message.contact.phone_number
     except Exception:
@@ -257,101 +513,156 @@ async def get_phone(message: types.Message):
     await update_client(message.from_user, phone=phone)
     await log_event(message.from_user, "PHONE", phone)
 
-    kb = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="📍 Отправить геолокацию", request_location=True)]],
-        resize_keyboard=True
-    )
-    await message.answer("✅ Спасибо! Теперь отправь геолокацию:", reply_markup=kb)
-
-
-@dp.message(F.location)
-async def get_location(message: types.Message):
-    loc = f"{message.location.latitude},{message.location.longitude}"
-    await update_client(message.from_user, location=loc)
-    await log_event(message.from_user, "LOCATION", loc)
-
-    await message.answer("✅ Отлично! Данные сохранены.", reply_markup=ReplyKeyboardRemove())
-
     # Главное меню
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
-        [InlineKeyboardButton(text="ℹ️ Почему мы это делаем?", callback_data="why_free")]
+        [InlineKeyboardButton(text="💳 Дебетовая карта", callback_data="category_debit")],
+        [InlineKeyboardButton(text="💳 Кредитная карта", callback_data="category_credit")],
+        [InlineKeyboardButton(text="🎲 Регистрация в БК", callback_data="category_bk")]
     ])
-    await message.answer(
-        "Теперь ты в системе! Выбирай бонусы и офферы 👇",
-        reply_markup=keyboard
-    )
+    await message.answer("✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! Выбери категорию оффера: 👇", reply_markup=kb)
 
 
-@dp.callback_query(F.data == "why_free")
-async def why_free(callback: types.CallbackQuery):
-    await log_event(callback.from_user, "BTN", "why_free")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 Забрать бонус", callback_data="bonus")],
-        [InlineKeyboardButton(text="⏭ Эксперт", callback_data="step_expert")]
-    ])
-    await callback.message.edit_text(
-        "💡 Секрет простой:\n"
-        "– Ты играешь и выигрываешь по прогнозам.\n"
-        "– Эксперт даёт прогноз и получает бонус.\n\n"
-        "👉 Поэтому нам выгодно, чтобы ты выигрывал и оставался с нами 👍",
-        reply_markup=kb
-    )
 
 
-@dp.callback_query(F.data.in_(["step_bk", "bonus"]))
-async def step_bk(callback: types.CallbackQuery):
-    await log_event(callback.from_user, "BTN", "step_bk/bonus")
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Fonbet - Бонус 1к", callback_data="bk_Fonbet")],
-        [InlineKeyboardButton(text="🔗 1xBet - Бонус 2к", callback_data="bk_1xbet")],
-        [InlineKeyboardButton(text="🔗 Pari - Бонус 5к", callback_data="bk_Pari")],
-        [InlineKeyboardButton(text="⏭ Эксперты", callback_data="step_expert")]
-    ])
-    await callback.message.edit_text(
-        "🚀 Переходи по ссылке, регистрируйся в БК и активируй бонус при пополнении.\n"
-        "⚡ Вот несколько контор, которые ты можешь добавить.\n"
-        "‼ Советуем распределить деньги по нескольким компаниям.\n\n"
-        "⏭ Как закончишь, переходи к экспертам.",
-        reply_markup=keyboard
-    )
 
 
-@dp.callback_query(F.data.startswith("bk_"))
-async def on_bk_click(callback: types.CallbackQuery):
-    bk_name = callback.data.split("_", 1)[1]
-    await update_client(callback.from_user, offer=bk_name, status="взял оффер БК")
-    await log_event(callback.from_user, "BK_CLICK", bk_name)
 
-    # здесь вместо callback.message.edit_text - отправляем приватное сообщение с ссылкой
-    # (так пользователь видит ссылку внизу, а не сообщение edit)
-    await callback.message.answer(
-        f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\nhttps://example.com/{bk_name}",
-        parse_mode="HTML"
-    )
+
+# обработчик выбора категории
+@dp.callback_query(F.data.startswith("category_"))
+async def category_handler(callback: types.CallbackQuery):
+    category = callback.data.split("_", 1)[1]
+    # логируем
+    await log_event(callback.from_user, "CATEGORY_CLICK", category)
+    # покажем страницу 1
+    await show_offers_page(callback, category, page=1)
+
+    await callback.message.answer(f"✅ Ты выбрал категорию: {category}. Дальше я выдам список офферов этой категории.")
     await callback.answer()
 
+# обработчик навигации страниц
+@dp.callback_query(F.data.startswith("offers_page:"))
+async def offers_page_handler(callback: types.CallbackQuery):
+    try:
+        _, cat, page_str = callback.data.split(":", 2)
+        page = int(page_str)
+    except:
+        await callback.answer("Ошибка навигации")
+        return
+    await show_offers_page(callback, cat, page)
 
-@dp.callback_query(F.data == "bonus")
-async def show_categories(callback: types.CallbackQuery):
-    await log_event(callback.from_user, "BTN", "bonus_menu")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Дебетовая карта", callback_data="offer_debit")],
-        [InlineKeyboardButton(text="💳 Кредитная карта", callback_data="offer_credit")],
-        [InlineKeyboardButton(text="🎲 Регистрация в БК", callback_data="offer_bk")]
-    ])
-    await callback.message.answer("Выбери категорию оффера:", reply_markup=kb)
+# обработчик выбора конкретного оффера
+@dp.callback_query(F.data.startswith("offer_select:"))
+async def offer_select_handler(callback: types.CallbackQuery):
+    try:
+        offer_id = callback.data.split(":", 1)[1]
+    except:
+        await callback.answer("Неверный оффер")
+        return
+
+    offer = OFFERS_BY_ID.get(offer_id)
+    if not offer:
+        await callback.answer("Оффер не найден")
+        return
+
+    # проверим, не брал ли пользователь уже этот оффер
+    row_index = await _get_client_row_index(str(callback.from_user.id))
+    if row_index:
+        taken = await get_user_taken_offers_by_row(row_index)
+        if offer_id in taken:
+            await callback.message.answer("Вы уже брали этот оффер.")
+            await callback.answer()
+            return
+
+    # помечаем ожидание кода
+    PENDING_OFFER[callback.from_user.id] = offer_id
+    await log_event(callback.from_user, "OFFER_REQUEST_CODE", offer_id)
+    await callback.message.answer(f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, который указан рядом с оффером (в таблице).")
     await callback.answer()
 
+@dp.message()
+async def handle_messages_for_code(message: types.Message):
+    user_id = message.from_user.id
+    if user_id not in PENDING_OFFER:
+        # если не ожидаем кода — ничего не делаем (или обрабатываем другие тексты отдельно)
+        return
 
-@dp.callback_query(F.data.startswith("offer_"))
-async def choose_offer(callback: types.CallbackQuery):
-    cat = callback.data.split("_", 1)[1]
-    # В H мы запишем название категории/оффера
-    await update_client(callback.from_user, offer=cat, status="оффер выбран")
-    await log_event(callback.from_user, "OFFER", cat)
-    await callback.message.answer(f"✅ Ты выбрал категорию: {cat}. Дальше я выдам список офферов этой категории.")
-    await callback.answer()
+    offer_id = PENDING_OFFER[user_id]
+    offer = OFFERS_BY_ID.get(offer_id)
+    if not offer:
+        await message.answer("Ошибка: оффер не найден (попробуйте выбрать снова).")
+        PENDING_OFFER.pop(user_id, None)
+        return
+
+    entered = message.text.strip()
+    # сравниваем коды (без учёта регистра/пробелов)
+    correct = (offer.get("code","").strip().lower() == entered.lower())
+    if not correct:
+        await log_event(message.from_user, "OFFER_CODE_INCORRECT", f"{offer_id} / {entered}")
+        await message.answer("Код неверный. Попробуй ещё раз или напиши 'отмена' для выхода.")
+        return
+
+    # если верно — выдаём ссылку и отмечаем оффер в клиентской таблице
+    # помечаем в CRM
+    row_index = await _get_client_row_index(str(user_id))
+    if not row_index:
+        # если по какой-то причине пользователь не в CRM — регистрируем его
+        await update_client(message.from_user, status="взял оффер", offer=offer_id)
+        row_index = await _get_client_row_index(str(user_id))
+
+    ok = await mark_offer_taken_for_user(row_index, offer_id)
+    if not ok:
+        await message.answer("Произошла ошибка при пометке оффера в базе. Но ссылку высылаю.")
+    # отправляем партнёрскую ссылку
+    await log_event(message.from_user, "OFFER_TAKEN", offer_id)
+    await message.answer(f"✅ Код верный! Вот ссылка на оффер:\n{offer.get('partner_link')}\n\nПосле выполнения пришли мне 'Готово', чтобы я зафиксировал выполнение.")
+    PENDING_OFFER.pop(user_id, None)
+
+# @dp.callback_query(F.data.startswith("offer_"))
+# async def on_bk_click(callback: types.CallbackQuery):
+#     bk_name = callback.data.split("_", 1)[1]
+#     offer_category = callback.data.split("_", 1)[1]
+#     # await update_client(callback.from_user, offer=offer_category, status="Выбрал категорию")
+#     await log_event(callback.from_user, "Сategory_CLICK", offer_category)
+
+#     # здесь вместо callback.message.edit_text - отправляем приватное сообщение с ссылкой
+#     # (так пользователь видит ссылку внизу, а не сообщение edit)
+#     await callback.message.answer(
+#         f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\nhttps://example.com/{bk_name}",
+#         parse_mode="HTML"
+#     )
+#     await callback.answer()
+
+# @dp.callback_query(F.data.startswith("exp_"))
+# async def on_expert_click(callback: types.CallbackQuery):
+#     # Пример: exp_Football_Africa → Football_Africa
+#     exp_key = callback.data.split("_", 1)[1]
+#     user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_key
+
+#     expert = EXPERTS.get(exp_key)
+#     if not expert:
+#         await callback.message.answer("❌ Эксперт не найден")
+#         return
+
+#     await callback.message.answer(
+#         f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}",
+#         parse_mode="HTML"
+#     )
+#     await callback.answer()
+
+
+
+
+
+
+@dp.message(Command("reload_offers"))
+async def cmd_reload_offers(message: types.Message):
+    ok = await load_offers_from_sheet()
+    await build_client_offer_col_map()
+    if ok:
+        await message.answer("Офферы перезагружены.")
+    else:
+        await message.answer("Ошибка при перезагрузке офферов.")
 
 @dp.message(Command("force_reset"))
 async def force_reset(message: types.Message):
