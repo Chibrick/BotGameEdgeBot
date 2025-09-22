@@ -113,7 +113,16 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                 status or "новый",          # P
                 datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")  # Q
             ]
-            await loop.run_in_executor(None, lambda: sheet_clients.append_row(new_row, value_input_option="USER_ENTERED"))
+
+            # Записываем точно в нужные ячейки
+            range_name = f"A{next_row}:AA{next_row}"
+        
+            # Правильный способ: создаем функцию-обертку
+            def update_sheet():
+                sheet_clients.update(range_name, [new_row], value_input_option='USER_ENTERED')
+
+            await loop.run_in_executor(None, update_sheet)
+
         return True
     except Exception as e:
         logger.error(f"Ошибка при обновлении клиента: {e}")
