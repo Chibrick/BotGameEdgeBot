@@ -97,7 +97,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                 sheet_clients.update_cell(row_index, 8, offer)      # H
             if status:
                 sheet_clients.update_cell(row_index, 16, status)    # P
-            sheet_clients.update_cell(row_index, 17, datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"))  # Q
+            await loop.run_in_executor(None, lambda: sheet_clients.update_cell(row_index, 17, datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"))) # Q
         else:
             # === создаем новую запись ===
             new_row = [
@@ -109,7 +109,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                 location,                   # F
                 ref,                        # G
                 offer,                      # H
-                "", "", "", "", "", "", "",   # I–O чекбоксы
+                "", "", "", "", "", "", "", # I–O чекбоксы
                 status or "новый",          # P
                 datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")  # Q
             ]
