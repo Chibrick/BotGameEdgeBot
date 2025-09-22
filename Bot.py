@@ -431,21 +431,19 @@ async def mark_offer_taken_for_user(row_index, offer_id):
 async def ensure_rows(sheet, needed_rows: int):
     loop = asyncio.get_event_loop()
 
-    # Получаем количество реально занятых строк
-    current_rows = await loop.run_in_executor(None, lambda: len(sheet.get_all_values()))
-
-    # Google Sheets всегда добавляет пустые строки в запасе
-    # поэтому лучше использовать row_count, если он не None
+    # Считаем строки сами
     try:
-        row_count = sheet.row_count
-        if row_count is None:
-            row_count = current_rows
-    except:
-        row_count = current_rows
+        current_rows = await loop.run_in_executor(None, lambda: len(sheet.get_all_values()))
+    except Exception:
+        current_rows = 0
 
-    # Если не хватает строк — добавляем
-    if needed_rows > row_count:
-        await loop.run_in_executor(None, lambda: sheet.add_rows(needed_rows - row_count))
+    # Если таблица пустая — считаем минимум 1 строка (заголовки)
+    if current_rows < 1:
+        current_rows = 1
+
+    # Если нужно больше строк — добавляем
+    if needed_rows > current_rows:
+        await loop.run_in_executor(None, lambda: sheet.add_rows(needed_rows - current_rows))
 
 def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
