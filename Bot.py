@@ -419,6 +419,7 @@ async def mark_offer_taken_for_user(row_index, offer_id):
 
         # обновляем всю строку A..Q
         range_name = f"A{row_index}:BK{row_index}"
+        await ensure_rows(sheet_clients, row_index)
         await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
         logger.info(f"Offer {offer_id} marked for row {row_index}")
         return True
@@ -427,10 +428,24 @@ async def mark_offer_taken_for_user(row_index, offer_id):
         logger.error(traceback.format_exc())
         return False
 
-async def ensure_rows(sheet, needed_rows):
-    current_rows = sheet.row_count
-    if needed_rows > current_rows:
-        await run_in_executor(sheet.add_rows, needed_rows - current_rows)
+async def ensure_rows(sheet, needed_rows: int):
+    loop = asyncio.get_event_loop()
+
+    # Получаем количество реально занятых строк
+    current_rows = await loop.run_in_executor(None, lambda: len(sheet.get_all_values()))
+
+    # Google Sheets всегда добавляет пустые строки в запасе
+    # поэтому лучше использовать row_count, если он не None
+    try:
+        row_count = sheet.row_count
+        if row_count is None:
+            row_count = current_rows
+    except:
+        row_count = current_rows
+
+    # Если не хватает строк — добавляем
+    if needed_rows > row_count:
+        await loop.run_in_executor(None, lambda: sheet.add_rows(needed_rows - row_count))
 
 def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
