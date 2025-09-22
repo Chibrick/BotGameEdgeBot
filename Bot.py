@@ -70,7 +70,7 @@ async def init_google_sheets():
         return False
 
 
-async def update_client(user: types.User, phone="", location="", offer="", status=""):
+async def update_client(user: types.User, phone="", location="", offer="", status="", ref=""):
     """Добавить или обновить клиента в таблице"""
     if not sheet_clients:
         return False
@@ -80,39 +80,40 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
 
         user_id = str(user.id)
         row_index = None
-        for i, row in enumerate(all_values, start=1):
-            if row and row[0] == user_id:
+        for i, row in enumerate(all_values, start=2):  # со 2-й строки (1-я заголовки)
+            if row and len(row) > 1 and row[1] == user_id:
                 row_index = i
                 break
 
         if row_index:
-            # обновляем
+            # === обновляем существующую запись ===
             if phone:
-                sheet_clients.update_cell(row_index, 5, phone)
+                sheet_clients.update_cell(row_index, 5, phone)      # E
             if location:
-                sheet_clients.update_cell(row_index, 6, location)
+                sheet_clients.update_cell(row_index, 6, location)   # F
+            if ref:
+                sheet_clients.update_cell(row_index, 7, ref)        # G
             if offer:
-                prev = all_values[row_index-1][6] if len(all_values[row_index-1]) > 6 else ""
-                new_offers = prev + ";" + offer if prev else offer
-                sheet_clients.update_cell(row_index, 7, new_offers)
+                sheet_clients.update_cell(row_index, 8, offer)      # H
             if status:
-                sheet_clients.update_cell(row_index, 8, status)
-            sheet_clients.update_cell(row_index, 10, datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"))
+                sheet_clients.update_cell(row_index, 16, status)    # P
+            sheet_clients.update_cell(row_index, 17, datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"))  # Q
         else:
-            # новый клиент
-            row_data = [
-                user_id,
-                user.username or "",
-                user.first_name or "",
-                user.last_name or "",
-                phone,
-                location,
-                offer,
-                status or "новый",
-                datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S"),
-                "Регистрация"
+            # === создаем новую запись ===
+            new_row = [
+                len(all_values),           # № клиента (A) = количество строк
+                user_id,                   # B
+                user.username or "",       # C
+                user.first_name or "",     # D
+                phone,                     # E
+                location,                  # F
+                ref,                       # G
+                offer,                     # H
+                "", "", "", "", "", "", "",  # I–O чекбоксы
+                status or "новый",         # P
+                datetime.now(MSK).strftime("%Y-%m-%d %H:%M:%S")  # Q
             ]
-            sheet_clients.append_row(row_data, value_input_option="USER_ENTERED")
+            sheet_clients.append_row(new_row, value_input_option="USER_ENTERED")
         return True
     except Exception as e:
         logger.error(f"Ошибка при обновлении клиента: {e}")
