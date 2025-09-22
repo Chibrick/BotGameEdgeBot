@@ -217,7 +217,7 @@ async def log_event(user: types.User, event_type: str, content: str):
             event_type,
             content[:300]
         ]
-        await run_in_executor(sheet_logs.append_row, row, {'valueInputOption': 'USER_ENTERED'})
+        await run_in_executor(lambda: sheet_logs.append_row(row, value_input_option='USER_ENTERED'))
         logger.info(f"Лог добавлен: {event_type} для {user.id}")
         return True
     except Exception as e:
