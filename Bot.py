@@ -750,7 +750,7 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
     Показываем карточку оффера из блока 'Мои офферы'
     """
     _, offer_id = callback.data.split(":", 1)
-    offer = OFFERS_BY_ID.get(int(offer_id))
+    offer = OFFERS_BY_ID[offer_id]
 
     logger.error(f"offer {offer}") #!!!!!!!!!!!!
 
