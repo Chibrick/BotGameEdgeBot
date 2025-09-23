@@ -751,7 +751,7 @@ async def show_my_offers_menu(callback: types.CallbackQuery):
     await edit_user_menu(
         callback.from_user.id,
         "📋 <b>Мои офферы</b>\n\nЭто твои офферы, можешь посмотреть подробную информацию:",
-        reply_markup=kb
+        kb
     )
     await callback.answer()
 
