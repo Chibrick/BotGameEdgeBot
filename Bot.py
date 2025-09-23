@@ -828,9 +828,9 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
             continue
 
     if not selected_offers:
+        kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
         await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", None)
         await callback.answer()
-        return
 
     # пагинация по 5
     total = len(selected_offers)
@@ -868,9 +868,9 @@ async def show_my_offers_done(callback: types.CallbackQuery):
             continue
 
     if not done_offers:
+        kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
         await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", None)
         await callback.answer()
-        return
 
     total = len(done_offers)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
