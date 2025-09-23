@@ -446,7 +446,8 @@ async def get_user_taken_offers_by_row(row_index):
                     v = row_vals[col_idx-1]
                 except:
                     v = ""
-                if str(v).strip().lower() in (""," "):
+                v = str(v).strip().upper()
+                if v in ("SELECTED", "DONE"):   # ⚡ только занятые
                     taken.add(str(offer_id))
         return taken
     except Exception as e:
