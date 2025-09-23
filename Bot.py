@@ -19,6 +19,8 @@ from datetime import datetime, timezone, timedelta
 from oauth2client.service_account import ServiceAccountCredentials
 import traceback
 from aiohttp import web
+from aiogram import BaseMiddleware
+import traceback
 
 load_dotenv()
 API_TOKEN = os.getenv("API_TOKEN")
@@ -660,8 +662,10 @@ async def handle_messages_for_code(message: types.Message):
 
 
 
-@dp.message(Command("reload_offers"))
+@dp.message(Command(commands=["reload_offers"]))
 async def cmd_reload_offers(message: types.Message):
+    # ручной лог события команды
+    await log_event(message.from_user, "CMD", "/reload_offers")
     ok = await load_offers_from_sheet()
     await build_client_offer_col_map()
     if ok:
@@ -669,25 +673,34 @@ async def cmd_reload_offers(message: types.Message):
     else:
         await message.answer("Ошибка при перезагрузке офферов.")
 
-@dp.message(Command("force_reset"))
+@dp.message(Command(commands=["force_reset"]))
 async def force_reset(message: types.Message):
-    """Принудительный сброс webhook и очистка апдейтов"""
+    await log_event(message.from_user, "CMD", "/force_reset")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
-        await bot.get_me()  # Проверяем соединение
+        await bot.get_me()
         await message.answer("✅ Webhook сброшен, все апдейты очищены!")
         logger.info(f"Принудительный сброс выполнен пользователем {message.from_user.id}")
     except Exception as e:
         await message.answer(f"❌ Ошибка при сбросе: {e}")
         logger.error(f"Ошибка при принудительном сбросе: {e}")
 
-@dp.message(Command("test_log"))
+@dp.message(Command(commands=["test_log"]))
 async def test_log(message: types.Message):
+    await log_event(message.from_user, "CMD", "/test_log")
     ok = await log_event(message.from_user, "TEST", "Проверка записи в логи")
     if ok:
         await message.answer("✅ Лог записан")
     else:
         await message.answer("❌ Ошибка при записи лога")
+
+@dp.message()
+async def fallback_message_handler(message: types.Message):
+    # если пользователь ожидает код, у тебя уже есть логика PENDING_OFFER — она сработает,
+    # потому что этот handler будет вызван и для обычных текстов.
+    await log_event(message.from_user, "FALLBACK_MSG", message.text or "")
+    # не обязательно отвечать автоматически — но можно отправить подсказку:
+    # await message.reply("Я получил сообщение. Если ты вводишь код — пиши его, иначе используй меню.")
 
 # Healthcheck для Render
 async def handle(request):
@@ -702,6 +715,45 @@ async def start_web_server():
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
     logging.info(f"Веб-сервер запущен на порту {port}")
+
+class LoggingMiddleware(BaseMiddleware):
+    """
+    Логирует входящие Message и CallbackQuery.
+    Не блокирует обработчик — логирование в Google выполняется в background (create_task).
+    """
+    async def __call__(self, handler, event, data):
+        try:
+            # MESSAGE
+            if isinstance(event, types.Message):
+                user = event.from_user
+                text = (event.text or "")[:300]
+                logger.info(f"[MSG] {user.id} @{user.username} : {text}")
+                # лог в Google в фоне (не блокируем основной обработчик)
+                try:
+                    asyncio.create_task(log_event(user, "MSG", text))
+                except Exception as e:
+                    logger.error(f"Failed schedule log_event: {e}")
+
+            # CALLBACK QUERY
+            elif isinstance(event, types.CallbackQuery):
+                user = event.from_user
+                data_text = (event.data or "")[:200]
+                logger.info(f"[CB] {user.id} @{user.username} : {data_text}")
+                try:
+                    asyncio.create_task(log_event(user, "CB", data_text))
+                except Exception as e:
+                    logger.error(f"Failed schedule log_event: {e}")
+
+        except Exception as e:
+            logger.error("Ошибка в LoggingMiddleware: " + str(e))
+            logger.error(traceback.format_exc())
+
+        # передаём событие дальше
+        return await handler(event, data)
+
+# Регистрируем middleware (важно: до старта polling)
+dp.message.middleware(LoggingMiddleware())
+dp.callback_query.middleware(LoggingMiddleware())
 
 # Main
 async def main():
