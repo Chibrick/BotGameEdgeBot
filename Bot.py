@@ -870,9 +870,15 @@ async def offers_page_handler(callback: types.CallbackQuery):
 async def back_to_categories_handler(callback: types.CallbackQuery):
     # формируем список категорий
     categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
-    keyboard = InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")] for cat in categories]
-    )
+
+    category_buttons = [
+        [InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")]
+        for cat in categories
+    ]
+    category_buttons.append([InlineKeyboardButton(text="📋 Мои офферы", callback_data="my_offers")])
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=category_buttons)
+
     await edit_user_menu(callback.from_user.id, "Выберите категорию оффера:", keyboard)
     await callback.answer()
 
