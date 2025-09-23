@@ -254,7 +254,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             new_row[IDX_OFFER_NO - 1] = offer_no or offer or ""
             # I..O checkboxes left empty            
 
-            range_name = f"A{next_row}:AA{next_row}"
+            range_name = f"A{next_row}:GG{next_row}"
             await run_in_executor(sheet_clients.update, range_name, [new_row], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Добавлена новая строка {next_row} для user {user_id}")
 
