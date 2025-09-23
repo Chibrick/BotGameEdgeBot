@@ -46,7 +46,7 @@ sheet_logs = None      # "Логи от бота"
 sheet_offers = None    # "Офферы"
 
 # меню пользователя: хранит (chat_id, message_id, category, page)
-USER_MENU_MESSAGE: dict[int, dict] = {}
+USER_MENU_MESSAGE = {}  # { user_id: {"chat_id": ..., "message_id": ..., "category": ..., "page": ...} }
 
 OFFERS = {}
 OFFERS_BY_CATEGORY = {}   # { "Дебетовые карты": [offer_obj, ...], ... }
@@ -116,6 +116,26 @@ class LoggingMiddleware(BaseMiddleware):
 
         # передаём событие дальше
         return await handler(event, data)
+
+async def edit_user_menu(user_id: int, text: str, keyboard: InlineKeyboardMarkup | None = None, category=None, page=None):
+    # если есть старое меню — удаляем
+    info = USER_MENU_MESSAGE.get(user_id)
+    if info:
+        try:
+            await bot.delete_message(chat_id=info["chat_id"], message_id=info["message_id"])
+        except Exception:
+            pass
+
+    # отправляем новое меню в самый низ
+    msg = await bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
+
+    # сохраняем инфу о последнем меню
+    USER_MENU_MESSAGE[user_id] = {
+        "chat_id": msg.chat.id,
+        "message_id": msg.message_id,
+        "category": category,
+        "page": page
+    }
 
 async def run_in_executor(fn, *args, **kwargs):
     loop = asyncio.get_event_loop()
@@ -609,42 +629,52 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
-    """Редактирует пользовательское меню, показывая страницу офферов."""
+    """Показывает страницу офферов пользователю, всегда обновляя меню снизу."""
     lst = OFFERS_BY_CATEGORY.get(category, [])
     if not lst:
-        await edit_user_menu(user_id, "В этой категории пока нет офферов.", None)
+        await edit_user_menu(
+            user_id,
+            f"❗ В категории <b>{category}</b> пока нет офферов."
+        )
         return
 
-    # получаем ряд пользователя (если есть) и какие офферы уже брал
+    # получаем какие офферы уже взял пользователь
     row_index = await _get_client_row_index(str(user_id))
     taken = set()
     if row_index:
         taken = await get_user_taken_offers_by_row(row_index)
 
     # фильтруем доступные офферы
-    available = [o for o in lst if o['id'] not in taken]
+    available = [o for o in lst if o["id"] not in taken]
     if not available:
-        await edit_user_menu(user_id, "❗ Все офферы в этой категории вы уже брали.", None)
+        await edit_user_menu(
+            user_id,
+            f"❗ Все офферы в категории <b>{category}</b> ты уже брал."
+        )
         return
 
+    # пагинация
     total = len(available)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     page = max(1, min(page, total_pages))
     start = (page - 1) * PAGE_SIZE
-    page_slice = available[start:start + PAGE_SIZE]
+    end = start + PAGE_SIZE
+    page_slice = available[start:end]
 
-    # текст и клавиатура
-    text = f"Категория: {category}\nСтраница {page}/{total_pages}\nВыберите оффер:"
+    # строим клавиатуру
     kb = _build_offers_keyboard(page_slice, category, page, total_pages)
 
-    # редактируем или отправляем меню
-    await edit_user_menu(user_id, text, kb)
+    # обновляем меню
+    await edit_user_menu(
+        user_id,
+        f"Категория: <b>{category}</b>\n"
+        f"Страница {page}/{total_pages}\n\n"
+        "Выберите оффер:",
+        keyboard=kb,
+        category=category,
+        page=page
+    )
 
-    # обновляем сохранённые метаданные меню
-    info = USER_MENU_MESSAGE.get(user_id)
-    if info:
-        info["category"] = category
-        info["page"] = page
 
 
 
@@ -877,6 +907,20 @@ async def handle_messages_for_code(message: types.Message):
     # очистим pending
     PENDING_OFFER.pop(user_id, None)
     await edit_user_menu(user_id, text_ok, kb)
+
+@dp.message()
+async def keep_menu(message: types.Message):
+    user_id = message.from_user.id
+    if user_id in USER_MENU_MESSAGE:
+        info = USER_MENU_MESSAGE[user_id]
+        if info.get("category"):
+            await show_offers_page_for_user(user_id, info["category"], info.get("page", 1))
+        else:
+            categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
+            kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category_{cat}")] for cat in categories]
+            )
+            await edit_user_menu(user_id, "Выберите категорию оффера:", kb)
 
 # @dp.callback_query(F.data.startswith("offer_"))
 # async def on_bk_click(callback: types.CallbackQuery):
