@@ -670,10 +670,9 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
         f"Категория: <b>{category}</b>\n"
         f"Страница {page}/{total_pages}\n\n"
         "Выберите оффер:",
-        keyboard=kb,
-        category=category,
-        page=page
+        keyboard=kb
     )
+
 
 
 
@@ -980,6 +979,26 @@ async def start_web_server():
 dp.message.middleware(LoggingMiddleware())
 dp.callback_query.middleware(LoggingMiddleware())
 
+async def on_startup(dispatcher: Dispatcher):
+    logger.info("🚀 Бот запускается...")
+
+    # 1. Инициализируем Google Sheets
+    ok = await init_google_sheets()
+    if not ok:
+        logger.error("❌ Ошибка инициализации Google Sheets!")
+        return
+
+    # 2. Загружаем офферы
+    ok = await load_offers_from_sheet()
+    if ok:
+        logger.info("✅ Офферы подгружены при запуске.")
+        await build_client_offer_col_map()
+    else:
+        logger.error("❌ Не удалось загрузить офферы при запуске.")
+
+    # 3. Лог
+    logger.info("✅ Бот успешно запущен и готов к работе!")
+
 # Main
 async def main():
     logger.info("Запуск бота...")
@@ -997,4 +1016,5 @@ async def main():
     )
 
 if __name__ == "__main__":
+    dp.startup.register(on_startup)
     asyncio.run(main())
