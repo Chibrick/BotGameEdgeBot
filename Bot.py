@@ -763,7 +763,13 @@ async def main():
         logger.error("Не удалось инициализировать Google Sheets. Бот будет работать, но без записи.")
     # старт веб-сервера для Render healthcheck
     asyncio.create_task(start_web_server())
-    await dp.start_polling(bot, drop_pending_updates=True)
+    
+    logger.info("Начинаем polling...")
+    await dp.start_polling(
+        bot,
+        drop_pending_updates=True,
+        allowed_updates=["message", "callback_query"]
+    )
 
 if __name__ == "__main__":
     asyncio.run(main())
