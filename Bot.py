@@ -520,7 +520,7 @@ async def get_user_taken_offers_by_row(row_index):
                     v = row_vals[col_idx-1]
                 except:
                     v = ""
-                if str(v).strip().lower() in ("true", "1", "да", "x", "x "):
+                if str(v).strip().lower() in ("true", "1", "да", "x", "x ", "SELECTED", "DONE"):
                     taken.add(str(offer_id))
         return taken
     except Exception as e:
@@ -750,10 +750,10 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
     Показываем карточку оффера из блока 'Мои офферы'
     """
     _, offer_id = callback.data.split(":", 1)
-
-    logger.error(f"offer_id {offer_id}") #!!!!!!!!!!!!
-    
     offer = OFFERS_BY_ID.get(int(offer_id))
+
+    logger.error(f"offer {offer}") #!!!!!!!!!!!!
+
     if not offer:
         await callback.answer("❌ Оффер не найден")
         return
@@ -815,7 +815,7 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
 
     if not selected_offers:
         kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
-        await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", None)
+        await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", kb)
         await callback.answer()
         return
 
@@ -856,7 +856,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
 
     if not done_offers:
         kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
-        await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", None)
+        await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", kb)
         await callback.answer()
         return
 
