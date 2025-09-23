@@ -310,84 +310,6 @@ def _find_col_index_by_keywords(headers, keywords):
                 return i
     return None
 
-# async def load_offers_from_sheet():
-#     """Загружает офферы из листа 'Офферы' в OFFERS_BY_CATEGORY и OFFERS_BY_ID.
-#        Ожидает, что init_google_sheets уже выполнен и sheet_offers доступен.
-#     """
-#     global OFFERS, OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
-#     if not sheet_offers:
-#         logger.error("sheet_offers не инициализирован")
-#         return False
-#     try:
-#         rows = await run_in_executor(sheet_offers.get_all_values)
-#         if not rows or len(rows) < 2:
-#             logger.warning("Лист 'Офферы' пуст или нет данных")
-#             OFFERS_BY_CATEGORY = {}
-#             OFFERS_BY_ID = {}
-#             return True
-
-#         header = rows[0]
-#         # определяем колонки по ключевым словам (robust)
-#         id_col = _find_col_index_by_keywords(header, ["№", "номер", "№ оффера", "№оффера", "id"])
-#         cat_col = _find_col_index_by_keywords(header, ["категори", "category", "категория"])
-#         name_col = _find_col_index_by_keywords(header, ["назван", "name", "название"])
-#         partner_link_col = _find_col_index_by_keywords(header, ["партн", "партнёр", "partner", "партнёрская ссылка", "партнёрская"])
-#         code_col = _find_col_index_by_keywords(header, ["код", "code"])
-#         direct_link_col = _find_col_index_by_keywords(header, ["ссылка", "link"])
-
-#         # fallback: если какие-то не определились — ставим дефолты (A..L)
-#         id_col = id_col or 1
-#         cat_col = cat_col or 2
-#         direct_link_col = direct_link_col or 3
-#         name_col = name_col or 4
-#         partner_link_col = partner_link_col or direct_link_col
-#         code_col = code_col or len(header)  # если нет, ставим последнюю колонку
-
-#         OFFERS_BY_CATEGORY = {}
-#         OFFERS_BY_ID = {}
-
-#         for idx, row in enumerate(rows[1:], start=2):
-#             # безопасно получить значение по колонке
-#             def get(r, col_idx):
-#                 try:
-#                     return r[col_idx-1].strip()
-#                 except Exception:
-#                     return ""
-
-#             offer_id = get(row, id_col)
-#             if not offer_id:
-#                 continue
-#             # normalize id as string
-#             offer_id = str(offer_id)
-#             category = get(row, cat_col) or "Без категории"
-#             name = get(row, name_col) or f"Оффер {offer_id}"
-#             partner_link = get(row, partner_link_col) or get(row, direct_link_col)
-#             code = get(row, code_col) or ""
-#             offer_obj = {
-#                 "id": offer_id,
-#                 "category": category,
-#                 "name": name,
-#                 "partner_link": partner_link,
-#                 "code": code,
-#                 "row": idx  # реальная строка в листе "Офферы"
-#             }
-#             OFFERS_BY_ID[offer_id] = offer_obj
-#             OFFERS_BY_CATEGORY.setdefault(category, []).append(offer_obj)
-
-#         # сортируем офферы в каждой категории по числовому id (если можно)
-#         for k, lst in OFFERS_BY_CATEGORY.items():
-#             try:
-#                 lst.sort(key=lambda x: int(x["id"]))
-#             except:
-#                 lst.sort(key=lambda x: x["id"])
-
-#         logger.info(f"Загружено офферов: {len(OFFERS_BY_ID)} категорий: {len(OFFERS_BY_CATEGORY)}")
-#         return True
-#     except Exception as e:
-#         logger.error(f"Ошибка load_offers_from_sheet: {e}")
-#         logger.error(traceback.format_exc())
-#         return False
-
 async def load_offers_from_sheet():
     global OFFERS, OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
     if not sheet_offers:
@@ -414,9 +336,11 @@ async def load_offers_from_sheet():
 
             offer_id = row[0].strip()             # № оффера (A)
             category = row[1].strip()             # Категория (B)
-            link = row[2].strip()                 # Ссылка (C)
             name = row[3].strip()                 # Название (D)
-            code = row[11].strip() if len(row) > 11 else ""  # Код (L)
+            link = row[8].strip()                 # Ссылка (I)
+            price = row[9].strip()                # Заплатим (J)
+            text = row[10].strip()                # Требуемые действия (подробно) (K)
+            code = row[11].strip()                # Код (L)
 
             if not category:
                 category = "Без категории"
@@ -436,6 +360,8 @@ async def load_offers_from_sheet():
                 "category": category,
                 "name": name,
                 "partner_link": link,
+                "price": price,
+                "text": text,
                 "code": code,
                 "row": idx
             }
@@ -520,7 +446,7 @@ async def get_user_taken_offers_by_row(row_index):
                     v = row_vals[col_idx-1]
                 except:
                     v = ""
-                if str(v).strip().lower() in ("true", "1", "да", "x", "x ", "SELECTED", "DONE"):
+                if str(v).strip().lower() in ("x"):
                     taken.add(str(offer_id))
         return taken
     except Exception as e:
@@ -760,12 +686,13 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
 
     text = (
         f"📌 <b>{offer.get('name')}</b>\n\n"
-        f"Описание: {offer.get('description','нет')}\n"
-        f"Ссылка: {offer.get('link') or offer.get('partner_link') or '—'}"
+        f"Ссылка: {offer.get('link')}\n\n"
+        f"Оплата: {offer.get('price')}\n\n"
+        f"Инструкция:\n {offer.get('text')}\n\n"
     )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Перейти к офферу", url=offer.get("link") or offer.get("partner_link"))] if offer.get("link") or offer.get("partner_link") else [],
+        [InlineKeyboardButton(text="🔗 Перейти по ссылке", url=offer.get("link"))] if offer.get("link") else [],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
     ])
     # убрать пустые строки если нет ссылки
@@ -943,7 +870,7 @@ async def offer_select_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
     ])
-    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, который указан рядом с оффером (в таблице).\n\nЕсли хочешь выйти — нажми ❌ Отмена или напиши 'отмена'."
+    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора или нажми ❌ Отмена для возвращения.\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}." #!!!!!!!!!!!!!!!
     await edit_user_menu(callback.from_user.id, prompt, kb)
     await callback.answer()
 
@@ -1033,7 +960,7 @@ async def handle_messages_for_code(message: types.Message):
         [InlineKeyboardButton(text="◀️ Вернуться к офферам", callback_data=f"offers_page:{offer['category']}:1")],
         [InlineKeyboardButton(text="⬅️ К категориям", callback_data="back_to_categories")]
     ])
-    text_ok = f"✅ Код верный! Вот ссылка на оффер:\n{offer.get('partner_link') or offer.get('link')}\n\nПосле выполнения нажми «◀️ Вернуться к офферам» или «⬅️ К категориям»."
+    text_ok = f"✅ Код верный! Вот ссылка на оффер:\n{offer['link']}\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
     # очистим pending
     PENDING_OFFER.pop(user_id, None)
     await edit_user_menu(user_id, text_ok, kb)
