@@ -567,39 +567,46 @@ async def get_user_taken_offers_by_row(row_index):
         logger.error(traceback.format_exc())
         return taken
 
-async def mark_offer_taken_for_user(user_id: int, offer_num: int):
-    try:
-        all_values = await run_in_executor(sheet_clients.get_all_values)
-        for i, row in enumerate(all_values, start=1):
-            if row[0] == str(user_id):
-                row_index = i
-                row_vals = row
-
-                # узнаём колонку из мапы
-                col_idx = CLIENT_OFFER_COL_MAP.get(offer_num)
-                if not col_idx:
-                    logger.error(f"❌ Нет колонки для оффера {offer_num}")
-                    return False
-
-                # дополняем строку пустыми значениями до col_idx
-                while len(row_vals) < col_idx:
-                    row_vals.append("")
-
-                # отмечаем TRUE
-                row_vals[col_idx - 1] = "TRUE"
-
-                # обновляем строку
-                await run_in_executor(
-                    sheet_clients.update,
-                    f"A{row_index}:ZZ{row_index}",
-                    [row_vals],
-                    {"valueInputOption": "USER_ENTERED"}
-                )
-                logger.info(f"✅ Пользователь {user_id} получил оффер {offer_num}")
-                return True
-
-        logger.error(f"❌ Пользователь {user_id} не найден в таблице.")
+async def mark_offer_taken_for_user(row_index: int, offer_id: int):
+    """
+    Помечает оффер за пользователем:
+    - добавляет offer_id в колонку H (список офферов)
+    - ставит TRUE в колонку чекбокса, если есть в CLIENT_OFFER_COL_MAP
+    """
+    if not sheet_clients:
+        logger.error("❌ sheet_clients не инициализирован")
         return False
+
+    try:
+        # получаем строку клиента
+        row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+        row_vals = _pad_row(row_vals, NUM_COLUMNS)
+
+        # обновляем колонку H (IDX_OFFER_NO)
+        already = row_vals[IDX_OFFER_NO - 1] or ""
+        parts = [p.strip() for p in already.split(";") if p.strip()]
+        if str(offer_id) not in parts:
+            parts.append(str(offer_id))
+        row_vals[IDX_OFFER_NO - 1] = ";".join(parts)
+
+        # обновляем чекбокс, если есть колонка для этого оффера
+        col_idx = CLIENT_OFFER_COL_MAP.get(int(offer_id))
+        if col_idx:
+            # дополним строку до col_idx
+            if len(row_vals) < col_idx:
+                row_vals += [""] * (col_idx - len(row_vals))
+            row_vals[col_idx - 1] = "TRUE"
+
+        # обновляем строку в таблице
+        await run_in_executor(
+            sheet_clients.update,
+            f"A{row_index}:ZZ{row_index}",
+            [row_vals],
+            {"valueInputOption": "USER_ENTERED"}
+        )
+        logger.info(f"✅ Оффер {offer_id} успешно помечен в строке {row_index}")
+        return True
+
     except Exception as e:
         logger.error(f"mark_offer_taken_for_user error: {e}")
         logger.error(traceback.format_exc())
@@ -906,11 +913,9 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
 
             # код верный
             row_index = await _get_client_row_index(str(user_id))
-            logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index} 111") #!!!!!!!
             if not row_index:
                 await update_client(message.from_user, status="взял оффер", offer=offer_id)
                 row_index = await _get_client_row_index(str(user_id))
-                logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index} 222") #!!!!!!!
 
             ok = await mark_offer_taken_for_user(row_index, offer_id)
             if not ok:
