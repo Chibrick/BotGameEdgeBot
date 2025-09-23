@@ -792,7 +792,7 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
     await edit_user_menu(
         callback.from_user.id,
         f"🟡 <b>Офферы в работе</b>\nСтраница 1/{total_pages}",
-        reply_markup=kb
+        kb
     )
     await callback.answer()
 
@@ -831,7 +831,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
     await edit_user_menu(
         callback.from_user.id,
         f"✅ <b>Выполненные офферы</b>\nСтраница 1/{total_pages}",
-        reply_markup=kb
+        kb
     )
     await callback.answer()
 
