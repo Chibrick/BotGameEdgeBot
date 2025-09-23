@@ -650,7 +650,8 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
     if not lst:
         await edit_user_menu(
             user_id,
-            f"❗ В категории <b>{category}</b> пока нет офферов."
+            f"❗ В категории <b>{category}</b> пока нет офферов.",
+            None
         )
         return
 
@@ -665,7 +666,8 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
     if not available:
         await edit_user_menu(
             user_id,
-            f"❗ Все офферы в категории <b>{category}</b> ты уже брал."
+            f"❗ Все офферы в категории <b>{category}</b> ты уже брал.",
+            None
         )
         return
 
@@ -686,7 +688,7 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
         f"Категория: <b>{category}</b>\n"
         f"Страница {page}/{total_pages}\n\n"
         "Выберите оффер:",
-        keyboard=kb
+        kb
     )
 
 
