@@ -121,7 +121,7 @@ async def run_in_executor(fn, *args, **kwargs):
 
 async def init_google_sheets():
     """Инициализация Google Sheets"""
-    global client, sheet_clients, sheet_logs
+    global client, sheet_clients, sheet_logs, sheet_offers
     try:
         scope = [
             "https://spreadsheets.google.com/feeds",
