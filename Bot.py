@@ -46,8 +46,7 @@ sheet_logs = None      # "Логи от бота"
 sheet_offers = None    # "Офферы"
 
 # меню пользователя: хранит (chat_id, message_id, category, page)
-USER_MENU_MESSAGE = {}  # { user_id: {"chat_id": ..., "message_id": ..., "category": ..., "page": ...} }
-USER_MENUS = {}  # user_id -> (chat_id, message_id)
+USER_MENU_MESSAGE: dict[int, dict] = {}
 
 OFFERS = {}
 OFFERS_BY_CATEGORY = {}   # { "Дебетовые карты": [offer_obj, ...], ... }
@@ -118,69 +117,6 @@ class LoggingMiddleware(BaseMiddleware):
         # передаём событие дальше
         return await handler(event, data)
 
-# async def edit_user_menu(user_id: int, text: str, keyboard: InlineKeyboardMarkup | None = None, category=None, page=None):
-#     # если есть старое меню — удаляем
-#     info = USER_MENU_MESSAGE.get(user_id)
-#     if info:
-#         try:
-#             await bot.delete_message(chat_id=info["chat_id"], message_id=info["message_id"])
-#         except Exception:
-#             pass
-
-#     # отправляем новое меню в самый низ
-#     msg = await bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
-
-#     # сохраняем инфу о последнем меню
-#     USER_MENU_MESSAGE[user_id] = {
-#         "chat_id": msg.chat.id,
-#         "message_id": msg.message_id,
-#         "category": category,
-#         "page": page
-#     }
-
-# async def edit_user_menu(user_id: int, text: str, keyboard: InlineKeyboardMarkup | None = None):
-#     """
-#     Попытка отредактировать существующее меню. Если не получилось — отправляем новое сообщение и сохраняем его.
-#     """
-#     info = USER_MENU_MESSAGE.get(user_id)
-#     if info:
-#         try:
-#             await bot.edit_message_text(
-#                 text=text,
-#                 chat_id=info["chat_id"],
-#                 message_id=info["message_id"],
-#                 reply_markup=keyboard,
-#                 parse_mode="HTML"
-#             )
-#             return
-#         except Exception as e:
-#             logger.warning(f"Не удалось отредактировать меню (user {user_id}): {e}")
-
-#     # fallback: отправляем новое сообщение и сохраняем его как меню
-#     try:
-#         msg = await bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
-#         await store_menu_message_for_user(user_id, msg)
-#     except Exception as e:
-#         logger.error(f"Ошибка при отправке fallback-меню пользователю {user_id}: {e}")
-
-async def edit_user_menu(user_id: int, text: str, reply_markup=None):
-    chat_id, message_id = USER_MENUS.get(user_id, (None, None))
-    if chat_id and message_id:
-        try:
-            await bot.edit_message_text(
-                chat_id=chat_id,
-                message_id=message_id,
-                text=text,
-                reply_markup=reply_markup
-            )
-        except Exception:
-            # если сообщение удалено или недоступно — пересоздаем
-            sent = await bot.send_message(user_id, text, reply_markup=reply_markup)
-            USER_MENUS[user_id] = (sent.chat.id, sent.message_id)
-    else:
-        sent = await bot.send_message(user_id, text, reply_markup=reply_markup)
-        USER_MENUS[user_id] = (sent.chat.id, sent.message_id)
-
 async def run_in_executor(fn, *args, **kwargs):
     loop = asyncio.get_event_loop()
     return await loop.run_in_executor(None, lambda: fn(*args, **kwargs))
@@ -192,6 +128,31 @@ async def store_menu_message_for_user(user_id: int, msg: types.Message):
         "category": None,
         "page": 1
     }
+
+async def edit_user_menu(user_id: int, text: str, keyboard: InlineKeyboardMarkup | None = None):
+    """
+    Попытка отредактировать существующее меню. Если не получилось — отправляем новое сообщение и сохраняем его.
+    """
+    info = USER_MENU_MESSAGE.get(user_id)
+    if info:
+        try:
+            await bot.edit_message_text(
+                text=text,
+                chat_id=info["chat_id"],
+                message_id=info["message_id"],
+                reply_markup=keyboard,
+                parse_mode="HTML"
+            )
+            return
+        except Exception as e:
+            logger.warning(f"Не удалось отредактировать меню (user {user_id}): {e}")
+
+    # fallback: отправляем новое сообщение и сохраняем его как меню
+    try:
+        msg = await bot.send_message(chat_id=user_id, text=text, reply_markup=keyboard, parse_mode="HTML")
+        await store_menu_message_for_user(user_id, msg)
+    except Exception as e:
+        logger.error(f"Ошибка при отправке fallback-меню пользователю {user_id}: {e}")
 
 async def init_google_sheets():
     """Инициализация Google Sheets"""
@@ -296,7 +257,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             client_no = next_row - 1  # первый data row will be 1 if header exists
             new_row = [""] * NUM_COLUMNS
             new_row[IDX_CLIENT_NO - 1] = str(client_no)
-            new_row[IDX_USER_ID - 1] = str(user_id)
+            new_row[IDX_USER_ID - 1] = user_id
             new_row[IDX_USERNAME - 1] = user.username or ""
             new_row[IDX_FIRST_NAME - 1] = user.first_name or ""
             new_row[IDX_PHONE - 1] = phone or ""
@@ -453,10 +414,8 @@ async def load_offers_from_sheet():
 
             offer_id = row[0].strip()             # № оффера (A)
             category = row[1].strip()             # Категория (B)
+            link = row[2].strip()                 # Ссылка (C)
             name = row[3].strip()                 # Название (D)
-            link = row[8].strip()                 # Ссылка (C)
-            price = row[9].strip()                # Заплатим
-            text = row[10].strip()                # Требуемые действия (подробно)
             code = row[11].strip() if len(row) > 11 else ""  # Код (L)
 
             if not category:
@@ -477,8 +436,6 @@ async def load_offers_from_sheet():
                 "category": category,
                 "name": name,
                 "partner_link": link,
-                "text": text,
-                "price": price,
                 "code": code,
                 "row": idx
             }
@@ -571,46 +528,42 @@ async def get_user_taken_offers_by_row(row_index):
         logger.error(traceback.format_exc())
         return taken
 
-async def mark_offer_taken_for_user(row_index: int, offer_id: int):
-    """
-    Помечает оффер за пользователем:
-    - добавляет offer_id в колонку H (список офферов)
-    - ставит TRUE в колонку чекбокса, если есть в CLIENT_OFFER_COL_MAP
+async def mark_offer_taken_for_user(row_index, offer_id):
+    """Помечает оффер за пользователем: 
+       - дописывает offer_id в H (если не было)
+       - ставит чекбокс TRUE в соответствующей колонке, если она присутствует
     """
     if not sheet_clients:
-        logger.error("❌ sheet_clients не инициализирован")
         return False
-
     try:
-        # получаем строку клиента
+        # получаем текущую строку
         row_vals = await run_in_executor(sheet_clients.row_values, row_index)
         row_vals = _pad_row(row_vals, NUM_COLUMNS)
 
-        # обновляем колонку H (IDX_OFFER_NO)
+        # обновим поле H (IDX_OFFER_NO)
         already = row_vals[IDX_OFFER_NO - 1] or ""
-        parts = [p.strip() for p in already.split(";") if p.strip()]
+        parts = [p for p in [s.strip() for s in already.split(";")] if p]
         if str(offer_id) not in parts:
             parts.append(str(offer_id))
-        row_vals[IDX_OFFER_NO - 1] = ";".join(parts)
+        new_h = ";".join(parts)
+        row_vals[IDX_OFFER_NO - 1] = new_h
 
-        # обновляем чекбокс, если есть колонка для этого оффера
-        col_idx = CLIENT_OFFER_COL_MAP.get(int(offer_id))
-        if col_idx:
-            # дополним строку до col_idx
-            if len(row_vals) < col_idx:
-                row_vals += [""] * (col_idx - len(row_vals))
-            row_vals[col_idx - 1] = "TRUE"
+        # если есть колонка чекбокса для этого оффера — отметим
+        if CLIENT_OFFER_COL_MAP:
+            try:
+                offer_int = int(offer_id)
+                col_idx = CLIENT_OFFER_COL_MAP.get(offer_int)
+            except:
+                col_idx = None
+            if col_idx:
+                # пометим TRUE в колонке col_idx
+                row_vals[col_idx - 1] = "SELECTED"
 
-        # обновляем строку в таблице
-        await run_in_executor(
-            sheet_clients.update,
-            f"A{row_index}:ZZ{row_index}",
-            [row_vals],
-            {"valueInputOption": "USER_ENTERED"}
-        )
-        logger.info(f"✅ Оффер {offer_id} успешно помечен в строке {row_index}")
+        # обновляем всю строку A..Q
+        range_name = f"A{row_index}:BK{row_index}"
+        await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
+        logger.info(f"Offer {offer_id} marked for row {row_index}")
         return True
-
     except Exception as e:
         logger.error(f"mark_offer_taken_for_user error: {e}")
         logger.error(traceback.format_exc())
@@ -637,7 +590,7 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
     buttons: list[list[InlineKeyboardButton]] = []
 
-    # кнопки офферов !!!!!!!!
+    # кнопки офферов
     for off in offers_page:
         text = f"{off['id']}. {off['name']}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}")])
@@ -656,54 +609,42 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
-    """Показывает страницу офферов пользователю, всегда обновляя меню снизу."""
+    """Редактирует пользовательское меню, показывая страницу офферов."""
     lst = OFFERS_BY_CATEGORY.get(category, [])
     if not lst:
-        await edit_user_menu(
-            user_id,
-            f"❗ В категории <b>{category}</b> пока нет офферов.",
-            None
-        )
+        await edit_user_menu(user_id, "В этой категории пока нет офферов.", None)
         return
 
-    # получаем какие офферы уже взял пользователь
+    # получаем ряд пользователя (если есть) и какие офферы уже брал
     row_index = await _get_client_row_index(str(user_id))
-
     taken = set()
     if row_index:
         taken = await get_user_taken_offers_by_row(row_index)
 
     # фильтруем доступные офферы
-    available = [o for o in lst if o["id"] not in taken]
+    available = [o for o in lst if o['id'] not in taken]
     if not available:
-        await edit_user_menu(
-            user_id,
-            f"❗ Все офферы в категории <b>{category}</b> ты уже брал.",
-            None
-        )
+        await edit_user_menu(user_id, "❗ Все офферы в этой категории вы уже брали.", None)
         return
 
-    # пагинация
     total = len(available)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     page = max(1, min(page, total_pages))
     start = (page - 1) * PAGE_SIZE
-    end = start + PAGE_SIZE
-    page_slice = available[start:end]
+    page_slice = available[start:start + PAGE_SIZE]
 
-    # строим клавиатуру
+    # текст и клавиатура
+    text = f"Категория: {category}\nСтраница {page}/{total_pages}\nВыберите оффер:"
     kb = _build_offers_keyboard(page_slice, category, page, total_pages)
 
-    # обновляем меню
-    await edit_user_menu(
-        user_id,
-        f"Категория: <b>{category}</b>\n"
-        f"Страница {page}/{total_pages}\n\n"
-        "Выберите оффер:",
-        kb
-    )
+    # редактируем или отправляем меню
+    await edit_user_menu(user_id, text, kb)
 
-
+    # обновляем сохранённые метаданные меню
+    info = USER_MENU_MESSAGE.get(user_id)
+    if info:
+        info["category"] = category
+        info["page"] = page
 
 
 
@@ -783,6 +724,8 @@ async def get_phone(message: types.Message):
         for cat in categories
     ]
 
+    category_buttons.append([InlineKeyboardButton(text="📋 Мои офферы", callback_data="my_offers")])
+
     keyboard = InlineKeyboardMarkup(inline_keyboard=category_buttons)
     msg = await message.answer(
         "✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! Выбери категорию оффера: 👇",
@@ -791,6 +734,111 @@ async def get_phone(message: types.Message):
 
     # Сохраняем это сообщение как "меню" пользователя
     await store_menu_message_for_user(message.from_user.id, msg)
+
+
+
+
+
+
+
+@dp.callback_query(F.data == "my_offers")
+async def show_my_offers_menu(callback: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🟡 Офферы в работе", callback_data="my_offers_in_progress")],
+        [InlineKeyboardButton(text="✅ Выполненные офферы", callback_data="my_offers_done")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="back_to_categories")]
+    ])
+    await edit_user_menu(
+        callback.from_user.id,
+        "📋 <b>Мои офферы</b>\n\nЭто твои офферы, можешь посмотреть подробную информацию:",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "my_offers_in_progress")
+async def show_my_offers_in_progress(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    row_index = await _get_client_row_index(user_id)
+    if not row_index:
+        await callback.answer("❌ Ты не зарегистрирован")
+        return
+
+    # забираем всю строку
+    row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+    row_vals = _pad_row(row_vals, NUM_COLUMNS)
+
+    selected_offers = []
+    for offer in OFFERS_BY_ID.values():
+        try:
+            col_idx = CLIENT_OFFER_COL_MAP.get(int(offer["id"]))
+            if col_idx and col_idx <= len(row_vals):
+                val = str(row_vals[col_idx - 1]).strip().upper()
+                if val == "SELECTED":
+                    selected_offers.append(offer)
+        except:
+            continue
+
+    if not selected_offers:
+        await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", None)
+        await callback.answer()
+        return
+
+    # пагинация по 5
+    total = len(selected_offers)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page_slice = selected_offers[:PAGE_SIZE]
+
+    kb = _build_offers_keyboard(page_slice, "my_offers_in_progress", 1, total_pages)
+    await edit_user_menu(
+        callback.from_user.id,
+        f"🟡 <b>Офферы в работе</b>\nСтраница 1/{total_pages}",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+@dp.callback_query(F.data == "my_offers_done")
+async def show_my_offers_done(callback: types.CallbackQuery):
+    user_id = str(callback.from_user.id)
+    row_index = await _get_client_row_index(user_id)
+    if not row_index:
+        await callback.answer("❌ Ты не зарегистрирован")
+        return
+
+    row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+    row_vals = _pad_row(row_vals, NUM_COLUMNS)
+
+    done_offers = []
+    for offer in OFFERS_BY_ID.values():
+        try:
+            col_idx = CLIENT_OFFER_COL_MAP.get(int(offer["id"]))
+            if col_idx and col_idx <= len(row_vals):
+                val = str(row_vals[col_idx - 1]).strip().upper()
+                if val == "DONE":
+                    done_offers.append(offer)
+        except:
+            continue
+
+    if not done_offers:
+        await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", None)
+        await callback.answer()
+        return
+
+    total = len(done_offers)
+    total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
+    page_slice = done_offers[:PAGE_SIZE]
+
+    kb = _build_offers_keyboard(page_slice, "my_offers_done", 1, total_pages)
+    await edit_user_menu(
+        callback.from_user.id,
+        f"✅ <b>Выполненные офферы</b>\nСтраница 1/{total_pages}",
+        reply_markup=kb
+    )
+    await callback.answer()
+
+
+
+
+
 
 
 
@@ -852,7 +900,7 @@ async def offer_select_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
     ])
-    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора, или нажми ❌ Отмена для возвращения.\n\nВы получите {offer['price']} за выполнение.\n\nИнструкция по офферу:\n{offer['text']}"
+    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, который указан рядом с оффером (в таблице).\n\nЕсли хочешь выйти — нажми ❌ Отмена или напиши 'отмена'."
     await edit_user_menu(callback.from_user.id, prompt, kb)
     await callback.answer()
 
@@ -871,86 +919,111 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
         await edit_user_menu(user_id, "Выберите категорию оффера:", kb)
     await callback.answer("Отменено")
 
-    @dp.message()
-    async def universal_message_handler(message: types.Message):
-        user_id = message.from_user.id
-        text = (message.text or "").strip().lower()
+@dp.message()
+async def handle_messages_for_code(message: types.Message):
+    user_id = message.from_user.id
+    text = (message.text or "").strip()
 
-        # Логируем всё
-        await log_event(message.from_user, "FALLBACK_MSG", text)
+    # логируем все входящие
+    await log_event(message.from_user, "FALLBACK_MSG", text)
 
-        # === 1. Если ожидаем код для оффера ===
-        if user_id in PENDING_OFFER:
-            # отмена
-            if text in ("отмена", "отменить", "cancel", "exit"):
-                PENDING_OFFER.pop(user_id, None)
-                info = USER_MENU_MESSAGE.get(user_id)
-                if info and info.get("category"):
-                    await show_offers_page_for_user(user_id, info["category"], info.get("page", 1))
-                else:
-                    categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
-                    kb = InlineKeyboardMarkup(
-                        inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")] for cat in categories]
-                    )
-                    await edit_user_menu(user_id, "Отменено. Выберите категорию оффера:", kb)
-                return
+    # если мы не ждём код — игнорируем (или можно обрабатывать другие фразы)
+    if user_id not in PENDING_OFFER:
+        return
 
-            offer_id = PENDING_OFFER.get(user_id)
-            offer = OFFERS_BY_ID.get(offer_id)
-            if not offer:
-                await message.answer("Ошибка: оффер не найден. Попробуй выбрать снова.")
-                PENDING_OFFER.pop(user_id, None)
-                return
+    # поддержка слов отмены
+    if text.lower() in ("отмена", "отменить", "cancel", "exit"):
+        PENDING_OFFER.pop(user_id, None)
+        info = USER_MENU_MESSAGE.get(user_id)
+        if info and info.get("category"):
+            await show_offers_page_for_user(user_id, info["category"], info.get("page", 1))
+        else:
+            # показать категории
+            categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")] for cat in categories])
+            await edit_user_menu(user_id, "Отменено. Выберите категорию оффера:", kb)
+        return
 
-            # проверка кода
-            if offer.get("code", "").strip().lower() != text:
-                kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
-                ])
-                await edit_user_menu(
-                    user_id,
-                    f"Код неверный. Попробуй ещё раз или нажми ❌ Отмена.\n\nОффер: {offer_id} — {offer['name']}",
-                    kb
-                )
-                await log_event(message.from_user, "OFFER_CODE_INCORRECT", f"{offer_id} / {text}")
-                return
+    offer_id = PENDING_OFFER.get(user_id)
+    offer = OFFERS_BY_ID.get(offer_id)
+    if not offer:
+        await message.answer("Ошибка: оффер не найден. Попробуй выбрать снова.")
+        PENDING_OFFER.pop(user_id, None)
+        return
 
-            # код верный
-            row_index = await _get_client_row_index(str(user_id))
-            if not row_index:
-                await update_client(message.from_user, status="взял оффер", offer=offer_id)
-                row_index = await _get_client_row_index(str(user_id))
+    entered = text.strip().lower()
+    correct = (offer.get("code","").strip().lower() == entered)
+    if not correct:
+        # редактируем то же меню с пометкой "Код неверный"
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
+        ])
+        await edit_user_menu(user_id, f"Код неверный. Попробуй ещё раз или нажми ❌ Отмена.\n\nОффер: {offer_id} — {offer['name']}", kb)
+        await log_event(message.from_user, "OFFER_CODE_INCORRECT", f"{offer_id} / {entered}")
+        return
 
-            ok = await mark_offer_taken_for_user(row_index, offer_id)
-            if not ok:
-                logger.warning("Не удалось пометить оффер, но всё равно отправлю ссылку.")
+    # код верный -> отмечаем и даём ссылку (и редактируем меню на подтверждение)
+    # помечаем в таблице
+    row_index = await _get_client_row_index(str(user_id))
+    if not row_index:
+        await update_client(message.from_user, status="взял оффер", offer=offer_id)
+        row_index = await _get_client_row_index(str(user_id))
 
-            await log_event(message.from_user, "OFFER_TAKEN", offer_id)
+    ok = await mark_offer_taken_for_user(row_index, offer_id)
+    if not ok:
+        logger.warning("Не удалось пометить оффер, но всё равно отправлю ссылку.")
 
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="◀️ Вернуться к офферам", callback_data=f"offers_page:{offer['category']}:1")],
-                [InlineKeyboardButton(text="⬅️ К категориям", callback_data="back_to_categories")]
-            ])
-            text_ok = (
-                f"✅ Код верный! Вот ссылка на оффер:\n"
-                f"{offer.get('partner_link') or offer.get('link')}\n\n"
-                f"После выполнения нажми «◀️ Вернуться к офферам» или «⬅️ К категориям»."
-            )
-            PENDING_OFFER.pop(user_id, None)
-            await edit_user_menu(user_id, text_ok, kb)
-            return
+    await log_event(message.from_user, "OFFER_TAKEN", offer_id)
 
-        # === 2. Если код не ждём → держим меню снизу ===
-        if user_id in USER_MENU_MESSAGE:
-            info = USER_MENU_MESSAGE[user_id]
-            if info.get("category"):
-                await show_offers_page_for_user(user_id, info["category"], info.get("page", 1))
-            else:
-                categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
-                kb = InlineKeyboardMarkup(
-                    inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category_{cat}")] for cat in categories]
-                )
-                await edit_user_menu(user_id, "Выберите категорию оффера:", kb)
+    # редактируем меню: показываем ссылку + кнопку "Вернуться к офферам"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="◀️ Вернуться к офферам", callback_data=f"offers_page:{offer['category']}:1")],
+        [InlineKeyboardButton(text="⬅️ К категориям", callback_data="back_to_categories")]
+    ])
+    text_ok = f"✅ Код верный! Вот ссылка на оффер:\n{offer.get('partner_link') or offer.get('link')}\n\nПосле выполнения нажми «◀️ Вернуться к офферам» или «⬅️ К категориям»."
+    # очистим pending
+    PENDING_OFFER.pop(user_id, None)
+    await edit_user_menu(user_id, text_ok, kb)
+
+# @dp.callback_query(F.data.startswith("offer_"))
+# async def on_bk_click(callback: types.CallbackQuery):
+#     bk_name = callback.data.split("_", 1)[1]
+#     offer_category = callback.data.split("_", 1)[1]
+#     # await update_client(callback.from_user, offer=offer_category, status="Выбрал категорию")
+#     await log_event(callback.from_user, "Сategory_CLICK", offer_category)
+
+#     # здесь вместо callback.message.edit_text - отправляем приватное сообщение с ссылкой
+#     # (так пользователь видит ссылку внизу, а не сообщение edit)
+#     await callback.message.answer(
+#         f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\nhttps://example.com/{bk_name}",
+#         parse_mode="HTML"
+#     )
+#     await callback.answer()
+
+# @dp.callback_query(F.data.startswith("exp_"))
+# async def on_expert_click(callback: types.CallbackQuery):
+#     # Пример: exp_Football_Africa → Football_Africa
+#     exp_key = callback.data.split("_", 1)[1]
+#     user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_key
+
+#     expert = EXPERTS.get(exp_key)
+#     if not expert:
+#         await callback.message.answer("❌ Эксперт не найден")
+#         return
+
+#     await callback.message.answer(
+#         f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}",
+#         parse_mode="HTML"
+#     )
+#     await callback.answer()
+
+@dp.message()
+async def fallback_message_handler(message: types.Message):
+    # если пользователь ожидает код, у тебя уже есть логика PENDING_OFFER — она сработает,
+    # потому что этот handler будет вызван и для обычных текстов.
+    await log_event(message.from_user, "FALLBACK_MSG", message.text or "")
+    # не обязательно отвечать автоматически — но можно отправить подсказку:
+    # await message.reply("Я получил сообщение. Если ты вводишь код — пиши его, иначе используй меню.")
 
 # Healthcheck для Render
 async def handle(request):
@@ -970,26 +1043,6 @@ async def start_web_server():
 dp.message.middleware(LoggingMiddleware())
 dp.callback_query.middleware(LoggingMiddleware())
 
-async def on_startup(dispatcher: Dispatcher):
-    logger.info("🚀 Бот запускается...")
-
-    # 1. Инициализируем Google Sheets
-    ok = await init_google_sheets()
-    if not ok:
-        logger.error("❌ Ошибка инициализации Google Sheets!")
-        return
-
-    # 2. Загружаем офферы
-    ok = await load_offers_from_sheet()
-    if ok:
-        logger.info("✅ Офферы подгружены при запуске.")
-        await build_client_offer_col_map()
-    else:
-        logger.error("❌ Не удалось загрузить офферы при запуске.")
-
-    # 3. Лог
-    logger.info("✅ Бот успешно запущен и готов к работе!")
-
 # Main
 async def main():
     logger.info("Запуск бота...")
@@ -1007,5 +1060,4 @@ async def main():
     )
 
 if __name__ == "__main__":
-    dp.startup.register(on_startup)
     asyncio.run(main())
