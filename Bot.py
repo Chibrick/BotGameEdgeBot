@@ -56,7 +56,8 @@ PENDING_OFFER = {}        # { user_id: offer_id } временная памят�
 PAGE_SIZE = 5
 
 # Константы кол-во колонок и индексы (A..Q)
-NUM_COLUMNS = 17
+NUM_COLUMNS = 40
+LAST_COLUMNS = "BK"
 IDX_CLIENT_NO = 1   # A
 IDX_USER_ID = 2     # B
 IDX_USERNAME = 3    # C
@@ -65,20 +66,7 @@ IDX_PHONE = 5       # E
 IDX_DATE = 6        # F
 IDX_MARK = 7        # G
 IDX_OFFER_NO = 8    # H
-# I..O = 9..15 (чекбоксы офферов)
-
-# OFFERS = {
-#     "debit": {
-#         "tbank_black": {"name": "Дебетовая карта Black (Т-Банк)", "link": "https://..."},
-#         "sber": {"name": "Сбербанк Дебетовая", "link": "https://..."},
-#     },
-#     "credit": {
-#         "tbank_platinum": {"name": "Кредитная карта Platinum (Т-Банк)", "link": "https://..."},
-#     },
-#     "bk": {
-#         "fonbet": {"name": "Fonbet Бонус", "link": "https://..."},
-#     }
-# }
+# K..} = 10..} (чекбоксы офферов)
 
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1pGc9kdpdFggwZlc3wairUBunou1BW_fw-D-heBViHic/edit#gid=0"
 
@@ -246,7 +234,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                     if offer not in row_vals[IDX_OFFER_NO - 1]:
                         row_vals[IDX_OFFER_NO - 1] = f"{row_vals[IDX_OFFER_NO - 1]};{offer}"
 
-            range_name = f"A{row_index}:BK{row_index}"
+            range_name = f"A{row_index}:{LAST_COLUMNS}{row_index}"
             await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Обновлена строка {row_index} для user {user_id}")
         else:
@@ -487,7 +475,7 @@ async def mark_offer_taken_for_user(row_index, offer_id):
                 row_vals[col_idx - 1] = "SELECTED"
 
         # обновляем всю строку A..Q
-        range_name = f"A{row_index}:BK{row_index}"
+        range_name = f"A{row_index}:{LAST_COLUMNS}{row_index}"
         await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
         logger.info(f"Offer {offer_id} marked for row {row_index}")
         return True
