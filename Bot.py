@@ -569,23 +569,6 @@ async def mark_offer_taken_for_user(row_index, offer_id):
         logger.error(traceback.format_exc())
         return False
 
-# def _build_offers_keyboard(offers_page, category, page, total_pages):
-#     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
-#     kb = InlineKeyboardMarkup()
-#     for off in offers_page:
-#         text = f"{off['id']}. {off['name']}"
-#         kb.add(InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}"))
-#     # навигация
-#     nav_row = []
-#     if page > 1:
-#         nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"offers_page:{category}:{page-1}"))
-#     if page < total_pages:
-#         nav_row.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"offers_page:{category}:{page+1}"))
-#     if nav_row:
-#         kb.row(*nav_row)
-#     kb.add(InlineKeyboardButton(text="◀️ Вернуться", callback_data="back_to_categories"))
-#     return kb
-
 def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
     buttons: list[list[InlineKeyboardButton]] = []
@@ -767,6 +750,9 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
     Показываем карточку оффера из блока 'Мои офферы'
     """
     _, offer_id = callback.data.split(":", 1)
+
+    logger.error(f"offer_id {offer_id}") #!!!!!!!!!!!!
+    
     offer = OFFERS_BY_ID.get(int(offer_id))
     if not offer:
         await callback.answer("❌ Оффер не найден")
@@ -831,6 +817,7 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
         kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
         await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", None)
         await callback.answer()
+        return
 
     # пагинация по 5
     total = len(selected_offers)
@@ -871,6 +858,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
         kb = [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
         await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", None)
         await callback.answer()
+        return
 
     total = len(done_offers)
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
@@ -974,6 +962,16 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
         await edit_user_menu(user_id, "Выберите категорию оффера:", kb)
     await callback.answer("Отменено")
 
+
+
+
+
+
+
+
+
+
+
 @dp.message()
 async def handle_messages_for_code(message: types.Message):
     user_id = message.from_user.id
@@ -1040,37 +1038,12 @@ async def handle_messages_for_code(message: types.Message):
     PENDING_OFFER.pop(user_id, None)
     await edit_user_menu(user_id, text_ok, kb)
 
-# @dp.callback_query(F.data.startswith("offer_"))
-# async def on_bk_click(callback: types.CallbackQuery):
-#     bk_name = callback.data.split("_", 1)[1]
-#     offer_category = callback.data.split("_", 1)[1]
-#     # await update_client(callback.from_user, offer=offer_category, status="Выбрал категорию")
-#     await log_event(callback.from_user, "Сategory_CLICK", offer_category)
 
-#     # здесь вместо callback.message.edit_text - отправляем приватное сообщение с ссылкой
-#     # (так пользователь видит ссылку внизу, а не сообщение edit)
-#     await callback.message.answer(
-#         f"🔗 <b>{bk_name}</b> — вот твоя ссылка для получения бонуса:\nhttps://example.com/{bk_name}",
-#         parse_mode="HTML"
-#     )
-#     await callback.answer()
 
-# @dp.callback_query(F.data.startswith("exp_"))
-# async def on_expert_click(callback: types.CallbackQuery):
-#     # Пример: exp_Football_Africa → Football_Africa
-#     exp_key = callback.data.split("_", 1)[1]
-#     user_choices.setdefault(callback.from_user.id, {})["expert"] = exp_key
 
-#     expert = EXPERTS.get(exp_key)
-#     if not expert:
-#         await callback.message.answer("❌ Эксперт не найден")
-#         return
 
-#     await callback.message.answer(
-#         f"📊 <b>{EXPERTS[exp_key]['name']}</b>: {EXPERTS[exp_key]['link']}",
-#         parse_mode="HTML"
-#     )
-#     await callback.answer()
+
+
 
 @dp.message()
 async def fallback_message_handler(message: types.Message):
