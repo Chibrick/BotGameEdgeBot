@@ -296,7 +296,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
             client_no = next_row - 1  # первый data row will be 1 if header exists
             new_row = [""] * NUM_COLUMNS
             new_row[IDX_CLIENT_NO - 1] = str(client_no)
-            new_row[IDX_USER_ID - 1] = user_id
+            new_row[IDX_USER_ID - 1] = str(user_id)
             new_row[IDX_USERNAME - 1] = user.username or ""
             new_row[IDX_FIRST_NAME - 1] = user.first_name or ""
             new_row[IDX_PHONE - 1] = phone or ""
@@ -657,9 +657,13 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
 
     # получаем какие офферы уже взял пользователь
     row_index = await _get_client_row_index(str(user_id))
+
     taken = set()
     if row_index:
         taken = await get_user_taken_offers_by_row(row_index)
+        logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
+    else:
+        logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
 
     # фильтруем доступные офферы
     available = [o for o in lst if o["id"] not in taken]
@@ -829,9 +833,12 @@ async def offer_select_handler(callback: types.CallbackQuery):
     row_index = await _get_client_row_index(str(callback.from_user.id))
     if row_index:
         taken = await get_user_taken_offers_by_row(row_index)
+        logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
         if offer_id in taken:
             await callback.answer("Вы уже брали этот оффер.")
             return
+    else:
+        logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
 
     # Помечаем ожидание кода
     PENDING_OFFER[callback.from_user.id] = offer_id
@@ -906,8 +913,12 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
             # код верный
             row_index = await _get_client_row_index(str(user_id))
             if not row_index:
+                logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
                 await update_client(message.from_user, status="взял оффер", offer=offer_id)
                 row_index = await _get_client_row_index(str(user_id))
+                logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
+            else:
+                logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index}")   #!!!!!!!!!
 
             ok = await mark_offer_taken_for_user(row_index, offer_id)
             if not ok:
