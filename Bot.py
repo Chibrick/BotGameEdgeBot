@@ -728,7 +728,11 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
             continue
 
     if not selected_offers:
-        kb = InlineKeyboardMarkup(inline_keyboard=[InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")])
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
+            ]
+        )
         await edit_user_menu(callback.from_user.id, "🟡 У тебя нет офферов в работе.", kb)
         await callback.answer()
         return
@@ -769,7 +773,11 @@ async def show_my_offers_done(callback: types.CallbackQuery):
             continue
 
     if not done_offers:
-        kb = InlineKeyboardMarkup(inline_keyboard=[InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")])
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
+            ]
+        )
         await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", kb)
         await callback.answer()
         return
