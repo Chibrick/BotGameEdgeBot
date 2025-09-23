@@ -359,7 +359,7 @@ async def load_offers_from_sheet():
                 "id": offer_id,
                 "category": category,
                 "name": name,
-                "partner_link": link,
+                "link": link,
                 "price": price,
                 "text": text,
                 "code": code,
@@ -446,7 +446,7 @@ async def get_user_taken_offers_by_row(row_index):
                     v = row_vals[col_idx-1]
                 except:
                     v = ""
-                if str(v).strip().lower() in ("x"):
+                if str(v).strip().lower() in (""," "):
                     taken.add(str(offer_id))
         return taken
     except Exception as e:
