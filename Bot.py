@@ -505,11 +505,12 @@ async def cmd_start(message: types.Message):
 
 
 @dp.message(F.contact)
-async def get_phone(callback: types.CallbackQuery):
+async def get_phone(message: types.Message):
     try:
         phone = message.contact.phone_number
     except Exception:
         phone = message.text.strip()
+
     await update_client(message.from_user, phone=phone)
     await log_event(message.from_user, "PHONE", phone)
 
@@ -519,8 +520,12 @@ async def get_phone(callback: types.CallbackQuery):
         [InlineKeyboardButton(text="💳 Кредитная карта", callback_data="category_credit")],
         [InlineKeyboardButton(text="🎲 Регистрация в БК", callback_data="category_bk")]
     ])
-    await message.answer("✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! Выбери категорию оффера: 👇", reply_markup=kb)
 
+    await message.answer(
+        "✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! "
+        "Выбери категорию оффера: 👇",
+        reply_markup=keyboard
+    )
 
 
 
