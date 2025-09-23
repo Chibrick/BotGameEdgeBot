@@ -657,7 +657,7 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
 
     # получаем какие офферы уже взял пользователь
     row_index = await _get_client_row_index(str(user_id))
-    
+
     taken = set()
     if row_index:
         taken = await get_user_taken_offers_by_row(row_index)
@@ -906,9 +906,11 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
 
             # код верный
             row_index = await _get_client_row_index(str(user_id))
+            logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index} 111") #!!!!!!!
             if not row_index:
                 await update_client(message.from_user, status="взял оффер", offer=offer_id)
                 row_index = await _get_client_row_index(str(user_id))
+                logger.error(f"❌ Пользователь {user_id} не найден в таблице. row_index {row_index} 222") #!!!!!!!
 
             ok = await mark_offer_taken_for_user(row_index, offer_id)
             if not ok:
