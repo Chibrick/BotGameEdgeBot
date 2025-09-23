@@ -354,7 +354,7 @@ def _find_col_index_by_keywords(headers, keywords):
 #         return False
 
 async def load_offers_from_sheet():
-    global OFFERS, sheet_offers
+    global OFFERS, OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
     if not sheet_offers:
         logger.error("sheet_offers не инициализирован")
         return False
@@ -363,44 +363,64 @@ async def load_offers_from_sheet():
         values = sheet_offers.get_all_values()
         if not values or len(values) < 2:
             logger.warning("Лист 'Офферы' пуст или нет данных")
+            OFFERS, OFFERS_BY_CATEGORY, OFFERS_BY_ID = {}, {}, {}
             return False
 
-        header = values[0]   # первая строка (названия колонок)
-        rows = values[1:]    # остальные строки
+        header = values[0]
+        rows = values[1:]
 
-        OFFERS = {}  # пересобираем словарь заново
+        OFFERS = {}
+        OFFERS_BY_CATEGORY = {}
+        OFFERS_BY_ID = {}
 
-        for row in rows:
+        for idx, row in enumerate(rows, start=2):
             if not row or not row[0].strip():
-                continue  # пустая строка
-
-            try:
-                offer_id = row[0].strip()        # A: № оффера
-                category = row[1].strip()        # B: Категория
-                link = row[2].strip()            # C: Ссылка
-                name = row[3].strip()            # D: Название
-                code = row[11].strip() if len(row) > 11 else ""  # L: Код
-
-                if not category:
-                    continue
-
-                if category not in OFFERS:
-                    OFFERS[category] = {}
-
-                OFFERS[category][offer_id] = {
-                    "name": name,
-                    "link": link,
-                    "code": code
-                }
-            except Exception as e:
-                logger.warning(f"Ошибка парсинга строки {row}: {e}")
                 continue
 
-        logger.info(f"Офферы загружены: {sum(len(v) for v in OFFERS.values())} шт. в {len(OFFERS)} категориях")
+            offer_id = row[0].strip()             # № оффера (A)
+            category = row[1].strip()             # Категория (B)
+            link = row[2].strip()                 # Ссылка (C)
+            name = row[3].strip()                 # Название (D)
+            code = row[11].strip() if len(row) > 11 else ""  # Код (L)
+
+            if not category:
+                category = "Без категории"
+
+            # сохраняем в OFFERS
+            if category not in OFFERS:
+                OFFERS[category] = {}
+            OFFERS[category][offer_id] = {
+                "name": name,
+                "link": link,
+                "code": code
+            }
+
+            # создаём универсальный объект
+            offer_obj = {
+                "id": offer_id,
+                "category": category,
+                "name": name,
+                "partner_link": link,
+                "code": code,
+                "row": idx
+            }
+
+            OFFERS_BY_ID[offer_id] = offer_obj
+            OFFERS_BY_CATEGORY.setdefault(category, []).append(offer_obj)
+
+        # сортируем офферы в каждой категории
+        for k, lst in OFFERS_BY_CATEGORY.items():
+            try:
+                lst.sort(key=lambda x: int(x["id"]))
+            except:
+                lst.sort(key=lambda x: x["id"])
+
+        logger.info(f"Офферы загружены: {len(OFFERS_BY_ID)} шт. в {len(OFFERS_BY_CATEGORY)} категориях")
         return True
 
     except Exception as e:
         logger.error(f"Ошибка при загрузке офферов: {e}")
+        logger.error(traceback.format_exc())
         return False
 
 async def build_client_offer_col_map():
