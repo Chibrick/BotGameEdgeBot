@@ -534,12 +534,32 @@ async def mark_offer_taken_for_user(row_index, offer_id):
         logger.error(traceback.format_exc())
         return False
 
+# def _build_offers_keyboard(offers_page, category, page, total_pages):
+#     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
+#     kb = InlineKeyboardMarkup()
+#     for off in offers_page:
+#         text = f"{off['id']}. {off['name']}"
+#         kb.add(InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}"))
+#     # навигация
+#     nav_row = []
+#     if page > 1:
+#         nav_row.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"offers_page:{category}:{page-1}"))
+#     if page < total_pages:
+#         nav_row.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"offers_page:{category}:{page+1}"))
+#     if nav_row:
+#         kb.row(*nav_row)
+#     kb.add(InlineKeyboardButton(text="◀️ Вернуться", callback_data="back_to_categories"))
+#     return kb
+
 def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
-    kb = InlineKeyboardMarkup()
+    buttons = []
+
+    # кнопки офферов
     for off in offers_page:
         text = f"{off['id']}. {off['name']}"
-        kb.add(InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}"))
+        buttons.append([InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}")])
+
     # навигация
     nav_row = []
     if page > 1:
@@ -547,9 +567,12 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     if page < total_pages:
         nav_row.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"offers_page:{category}:{page+1}"))
     if nav_row:
-        kb.row(*nav_row)
-    kb.add(InlineKeyboardButton(text="◀️ Вернуться", callback_data="back_to_categories"))
-    return kb
+        buttons.append(nav_row)
+
+    # кнопка возврата
+    buttons.append([InlineKeyboardButton(text="◀️ Вернуться", callback_data="back_to_categories")])
+
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 async def show_offers_page(callback, category, page=1):
     """Отображает страницу офферов категории пользователю, учитывая те, что уже взял."""
