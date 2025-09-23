@@ -739,6 +739,55 @@ async def get_phone(message: types.Message):
 
 
 
+def _build_my_offers_keyboard(offers_page, source: str, page: int, total_pages: int):
+    """
+    Клавиатура для блока 'Мои офферы' (SELECTED / DONE).
+    source = "my_offers_in_progress" или "my_offers_done"
+    """
+    rows = []
+    for offer in offers_page:
+        text = f"{offer['id']}. {offer['name']}"
+        rows.append([InlineKeyboardButton(text=text, callback_data=f"my_offer_info:{offer['id']}")])
+
+    nav = []
+    if page > 1:
+        nav.append(InlineKeyboardButton(text="⬅️ Назад", callback_data=f"{source}_page:{page-1}"))
+    if page < total_pages:
+        nav.append(InlineKeyboardButton(text="Вперёд ➡️", callback_data=f"{source}_page:{page+1}"))
+    if nav:
+        rows.append(nav)
+
+    rows.append([InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")])
+
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+@dp.callback_query(F.data.startswith("my_offer_info:"))
+async def my_offer_info_handler(callback: types.CallbackQuery):
+    """
+    Показываем карточку оффера из блока 'Мои офферы'
+    """
+    _, offer_id = callback.data.split(":", 1)
+    offer = OFFERS_BY_ID.get(int(offer_id))
+    if not offer:
+        await callback.answer("❌ Оффер не найден")
+        return
+
+    text = (
+        f"📌 <b>{offer.get('name')}</b>\n\n"
+        f"Описание: {offer.get('description','нет')}\n"
+        f"Ссылка: {offer.get('link') or offer.get('partner_link') or '—'}"
+    )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔗 Перейти к офферу", url=offer.get("link") or offer.get("partner_link"))] if offer.get("link") or offer.get("partner_link") else [],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
+    ])
+    # убрать пустые строки если нет ссылки
+    kb.inline_keyboard = [r for r in kb.inline_keyboard if r]
+
+    await edit_user_menu(callback.from_user.id, text, kb)
+    await callback.answer()
+
 
 
 @dp.callback_query(F.data == "my_offers")
@@ -788,7 +837,7 @@ async def show_my_offers_in_progress(callback: types.CallbackQuery):
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     page_slice = selected_offers[:PAGE_SIZE]
 
-    kb = _build_offers_keyboard(page_slice, "my_offers_in_progress", 1, total_pages)
+    kb = _build_my_offers_keyboard(page_slice, "my_offers_in_progress", 1, total_pages)
     await edit_user_menu(
         callback.from_user.id,
         f"🟡 <b>Офферы в работе</b>\nСтраница 1/{total_pages}",
@@ -827,7 +876,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
     total_pages = (total + PAGE_SIZE - 1) // PAGE_SIZE
     page_slice = done_offers[:PAGE_SIZE]
 
-    kb = _build_offers_keyboard(page_slice, "my_offers_done", 1, total_pages)
+    kb = _build_my_offers_keyboard(page_slice, "my_offers_done", 1, total_pages)
     await edit_user_menu(
         callback.from_user.id,
         f"✅ <b>Выполненные офферы</b>\nСтраница 1/{total_pages}",
