@@ -64,18 +64,18 @@ IDX_MARK = 7        # G
 IDX_OFFER_NO = 8    # H
 # I..O = 9..15 (чекбоксы офферов)
 
-OFFERS = {
-    "debit": {
-        "tbank_black": {"name": "Дебетовая карта Black (Т-Банк)", "link": "https://..."},
-        "sber": {"name": "Сбербанк Дебетовая", "link": "https://..."},
-    },
-    "credit": {
-        "tbank_platinum": {"name": "Кредитная карта Platinum (Т-Банк)", "link": "https://..."},
-    },
-    "bk": {
-        "fonbet": {"name": "Fonbet Бонус", "link": "https://..."},
-    }
-}
+# OFFERS = {
+#     "debit": {
+#         "tbank_black": {"name": "Дебетовая карта Black (Т-Банк)", "link": "https://..."},
+#         "sber": {"name": "Сбербанк Дебетовая", "link": "https://..."},
+#     },
+#     "credit": {
+#         "tbank_platinum": {"name": "Кредитная карта Platinum (Т-Банк)", "link": "https://..."},
+#     },
+#     "bk": {
+#         "fonbet": {"name": "Fonbet Бонус", "link": "https://..."},
+#     }
+# }
 
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1pGc9kdpdFggwZlc3wairUBunou1BW_fw-D-heBViHic/edit#gid=0"
 
@@ -576,7 +576,6 @@ async def show_offers_page(callback, category, page=1):
 @dp.message(Command(commands=["reload_offers"]))
 async def cmd_reload_offers(message: types.Message):
     # ручной лог события команды
-    await log_event(message.from_user, "CMD", "/reload_offers")
     ok = await load_offers_from_sheet()
     await build_client_offer_col_map()
     if ok:
@@ -586,7 +585,6 @@ async def cmd_reload_offers(message: types.Message):
 
 @dp.message(Command(commands=["force_reset"]))
 async def force_reset(message: types.Message):
-    await log_event(message.from_user, "CMD", "/force_reset")
     try:
         await bot.delete_webhook(drop_pending_updates=True)
         await bot.get_me()
@@ -598,8 +596,7 @@ async def force_reset(message: types.Message):
 
 @dp.message(Command(commands=["test_log"]))
 async def test_log(message: types.Message):
-    await log_event(message.from_user, "CMD", "/test_log")
-    ok = await log_event(message.from_user, "TEST", "Проверка записи в логи")
+    ok = await log_event(message.from_user, "CMD", "/test_log")
     if ok:
         await message.answer("✅ Лог записан")
     else:
@@ -658,12 +655,10 @@ async def get_phone(message: types.Message):
 @dp.callback_query(F.data.startswith("category_"))
 async def category_handler(callback: types.CallbackQuery):
     category = callback.data.split("_", 1)[1]
-    # логируем
-    await log_event(callback.from_user, "CATEGORY_CLICK", category)
+    await callback.message.answer(f"✅ Ты выбрал категорию: {category}. Дальше я выдам список офферов этой категории.")
     # покажем страницу 1
     await show_offers_page(callback, category, page=1)
 
-    await callback.message.answer(f"✅ Ты выбрал категорию: {category}. Дальше я выдам список офферов этой категории.")
     await callback.answer()
 
 # обработчик навигации страниц
