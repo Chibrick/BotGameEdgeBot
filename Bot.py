@@ -605,14 +605,6 @@ async def test_log(message: types.Message):
     else:
         await message.answer("❌ Ошибка при записи лога")
 
-@dp.message()
-async def fallback_message_handler(message: types.Message):
-    # если пользователь ожидает код, у тебя уже есть логика PENDING_OFFER — она сработает,
-    # потому что этот handler будет вызван и для обычных текстов.
-    await log_event(message.from_user, "FALLBACK_MSG", message.text or "")
-    # не обязательно отвечать автоматически — но можно отправить подсказку:
-    # await message.reply("Я получил сообщение. Если ты вводишь код — пиши его, иначе используй меню.")
-
 @dp.message(Command("start"))
 async def cmd_start(message: types.Message):
     ref = "без_метки"
@@ -784,7 +776,13 @@ async def handle_messages_for_code(message: types.Message):
 #     )
 #     await callback.answer()
 
-
+@dp.message()
+async def fallback_message_handler(message: types.Message):
+    # если пользователь ожидает код, у тебя уже есть логика PENDING_OFFER — она сработает,
+    # потому что этот handler будет вызван и для обычных текстов.
+    await log_event(message.from_user, "FALLBACK_MSG", message.text or "")
+    # не обязательно отвечать автоматически — но можно отправить подсказку:
+    # await message.reply("Я получил сообщение. Если ты вводишь код — пиши его, иначе используй меню.")
 
 # Healthcheck для Render
 async def handle(request):
