@@ -43,8 +43,9 @@ dp = Dispatcher()
 client = None
 sheet_clients = None   # "Клиенты - Партнерки"
 sheet_logs = None      # "Логи от бота"
+sheet_offers = None    # "Офферы"
 
-sheet_offers = None
+OFFERS = {}
 OFFERS_BY_CATEGORY = {}   # { "Дебетовые карты": [offer_obj, ...], ... }
 OFFERS_BY_ID = {}         # { "1": offer_obj, ... }
 CLIENT_OFFER_COL_MAP = {} # { offer_id_int: column_index_in_clients_sheet }
@@ -139,6 +140,7 @@ async def init_google_sheets():
         spreadsheet = await run_in_executor(client.open_by_url, SPREADSHEET_URL)
         sheet_clients = spreadsheet.worksheet("Клиенты - Партнерки")
         sheet_logs = spreadsheet.worksheet("Логи от бота")
+        sheet_offers = spreadsheet.worksheet("Офферы")
 
         logger.info("Google Sheets успешно инициализированы!")
         return True
@@ -273,82 +275,132 @@ def _find_col_index_by_keywords(headers, keywords):
                 return i
     return None
 
+# async def load_offers_from_sheet():
+#     """Загружает офферы из листа 'Офферы' в OFFERS_BY_CATEGORY и OFFERS_BY_ID.
+#        Ожидает, что init_google_sheets уже выполнен и sheet_offers доступен.
+#     """
+#     global OFFERS, OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
+#     if not sheet_offers:
+#         logger.error("sheet_offers не инициализирован")
+#         return False
+#     try:
+#         rows = await run_in_executor(sheet_offers.get_all_values)
+#         if not rows or len(rows) < 2:
+#             logger.warning("Лист 'Офферы' пуст или нет данных")
+#             OFFERS_BY_CATEGORY = {}
+#             OFFERS_BY_ID = {}
+#             return True
+
+#         header = rows[0]
+#         # определяем колонки по ключевым словам (robust)
+#         id_col = _find_col_index_by_keywords(header, ["№", "номер", "№ оффера", "№оффера", "id"])
+#         cat_col = _find_col_index_by_keywords(header, ["категори", "category", "категория"])
+#         name_col = _find_col_index_by_keywords(header, ["назван", "name", "название"])
+#         partner_link_col = _find_col_index_by_keywords(header, ["партн", "партнёр", "partner", "партнёрская ссылка", "партнёрская"])
+#         code_col = _find_col_index_by_keywords(header, ["код", "code"])
+#         direct_link_col = _find_col_index_by_keywords(header, ["ссылка", "link"])
+
+#         # fallback: если какие-то не определились — ставим дефолты (A..L)
+#         id_col = id_col or 1
+#         cat_col = cat_col or 2
+#         direct_link_col = direct_link_col or 3
+#         name_col = name_col or 4
+#         partner_link_col = partner_link_col or direct_link_col
+#         code_col = code_col or len(header)  # если нет, ставим последнюю колонку
+
+#         OFFERS_BY_CATEGORY = {}
+#         OFFERS_BY_ID = {}
+
+#         for idx, row in enumerate(rows[1:], start=2):
+#             # безопасно получить значение по колонке
+#             def get(r, col_idx):
+#                 try:
+#                     return r[col_idx-1].strip()
+#                 except Exception:
+#                     return ""
+
+#             offer_id = get(row, id_col)
+#             if not offer_id:
+#                 continue
+#             # normalize id as string
+#             offer_id = str(offer_id)
+#             category = get(row, cat_col) or "Без категории"
+#             name = get(row, name_col) or f"Оффер {offer_id}"
+#             partner_link = get(row, partner_link_col) or get(row, direct_link_col)
+#             code = get(row, code_col) or ""
+#             offer_obj = {
+#                 "id": offer_id,
+#                 "category": category,
+#                 "name": name,
+#                 "partner_link": partner_link,
+#                 "code": code,
+#                 "row": idx  # реальная строка в листе "Офферы"
+#             }
+#             OFFERS_BY_ID[offer_id] = offer_obj
+#             OFFERS_BY_CATEGORY.setdefault(category, []).append(offer_obj)
+
+#         # сортируем офферы в каждой категории по числовому id (если можно)
+#         for k, lst in OFFERS_BY_CATEGORY.items():
+#             try:
+#                 lst.sort(key=lambda x: int(x["id"]))
+#             except:
+#                 lst.sort(key=lambda x: x["id"])
+
+#         logger.info(f"Загружено офферов: {len(OFFERS_BY_ID)} категорий: {len(OFFERS_BY_CATEGORY)}")
+#         return True
+#     except Exception as e:
+#         logger.error(f"Ошибка load_offers_from_sheet: {e}")
+#         logger.error(traceback.format_exc())
+#         return False
+
 async def load_offers_from_sheet():
-    """Загружает офферы из листа 'Офферы' в OFFERS_BY_CATEGORY и OFFERS_BY_ID.
-       Ожидает, что init_google_sheets уже выполнен и sheet_offers доступен.
-    """
-    global OFFERS_BY_CATEGORY, OFFERS_BY_ID, sheet_offers
+    global OFFERS, sheet_offers
     if not sheet_offers:
         logger.error("sheet_offers не инициализирован")
         return False
+
     try:
-        rows = await run_in_executor(sheet_offers.get_all_values)
-        if not rows or len(rows) < 2:
+        values = sheet_offers.get_all_values()
+        if not values or len(values) < 2:
             logger.warning("Лист 'Офферы' пуст или нет данных")
-            OFFERS_BY_CATEGORY = {}
-            OFFERS_BY_ID = {}
-            return True
+            return False
 
-        header = rows[0]
-        # определяем колонки по ключевым словам (robust)
-        id_col = _find_col_index_by_keywords(header, ["№", "номер", "№ оффера", "№оффера", "id"])
-        cat_col = _find_col_index_by_keywords(header, ["категори", "category", "категория"])
-        name_col = _find_col_index_by_keywords(header, ["назван", "name", "название"])
-        partner_link_col = _find_col_index_by_keywords(header, ["партн", "партнёр", "partner", "партнёрская ссылка", "партнёрская"])
-        code_col = _find_col_index_by_keywords(header, ["код", "code"])
-        direct_link_col = _find_col_index_by_keywords(header, ["ссылка", "link"])
+        header = values[0]   # первая строка (названия колонок)
+        rows = values[1:]    # остальные строки
 
-        # fallback: если какие-то не определились — ставим дефолты (A..L)
-        id_col = id_col or 1
-        cat_col = cat_col or 2
-        direct_link_col = direct_link_col or 3
-        name_col = name_col or 4
-        partner_link_col = partner_link_col or direct_link_col
-        code_col = code_col or len(header)  # если нет, ставим последнюю колонку
+        OFFERS = {}  # пересобираем словарь заново
 
-        OFFERS_BY_CATEGORY = {}
-        OFFERS_BY_ID = {}
+        for row in rows:
+            if not row or not row[0].strip():
+                continue  # пустая строка
 
-        for idx, row in enumerate(rows[1:], start=2):
-            # безопасно получить значение по колонке
-            def get(r, col_idx):
-                try:
-                    return r[col_idx-1].strip()
-                except Exception:
-                    return ""
-
-            offer_id = get(row, id_col)
-            if not offer_id:
-                continue
-            # normalize id as string
-            offer_id = str(offer_id)
-            category = get(row, cat_col) or "Без категории"
-            name = get(row, name_col) or f"Оффер {offer_id}"
-            partner_link = get(row, partner_link_col) or get(row, direct_link_col)
-            code = get(row, code_col) or ""
-            offer_obj = {
-                "id": offer_id,
-                "category": category,
-                "name": name,
-                "partner_link": partner_link,
-                "code": code,
-                "row": idx  # реальная строка в листе "Офферы"
-            }
-            OFFERS_BY_ID[offer_id] = offer_obj
-            OFFERS_BY_CATEGORY.setdefault(category, []).append(offer_obj)
-
-        # сортируем офферы в каждой категории по числовому id (если можно)
-        for k, lst in OFFERS_BY_CATEGORY.items():
             try:
-                lst.sort(key=lambda x: int(x["id"]))
-            except:
-                lst.sort(key=lambda x: x["id"])
+                offer_id = row[0].strip()        # A: № оффера
+                category = row[1].strip()        # B: Категория
+                link = row[2].strip()            # C: Ссылка
+                name = row[3].strip()            # D: Название
+                code = row[11].strip() if len(row) > 11 else ""  # L: Код
 
-        logger.info(f"Загружено офферов: {len(OFFERS_BY_ID)} категорий: {len(OFFERS_BY_CATEGORY)}")
+                if not category:
+                    continue
+
+                if category not in OFFERS:
+                    OFFERS[category] = {}
+
+                OFFERS[category][offer_id] = {
+                    "name": name,
+                    "link": link,
+                    "code": code
+                }
+            except Exception as e:
+                logger.warning(f"Ошибка парсинга строки {row}: {e}")
+                continue
+
+        logger.info(f"Офферы загружены: {sum(len(v) for v in OFFERS.values())} шт. в {len(OFFERS)} категориях")
         return True
+
     except Exception as e:
-        logger.error(f"Ошибка load_offers_from_sheet: {e}")
-        logger.error(traceback.format_exc())
+        logger.error(f"Ошибка при загрузке офферов: {e}")
         return False
 
 async def build_client_offer_col_map():
@@ -591,19 +643,19 @@ async def get_phone(message: types.Message):
     await update_client(message.from_user, phone=phone)
     await log_event(message.from_user, "PHONE", phone)
 
-    # Главное меню
-    keyboard = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Дебетовая карта", callback_data="category_debit")],
-        [InlineKeyboardButton(text="💳 Кредитная карта", callback_data="category_credit")],
-        [InlineKeyboardButton(text="🎲 Регистрация в БК", callback_data="category_bk")]
-    ])
+    # Формируем кнопки категорий динамически
+    category_buttons = [
+        [InlineKeyboardButton(text=f"📂 {category}", callback_data=f"category_{category}")]
+        for category in OFFERS.keys()
+    ]
+
+    keyboard = InlineKeyboardMarkup(inline_keyboard=category_buttons)
 
     await message.answer(
         "✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! "
         "Выбери категорию оффера: 👇",
         reply_markup=keyboard
     )
-
 
 
 
