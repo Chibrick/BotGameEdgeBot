@@ -453,8 +453,10 @@ async def load_offers_from_sheet():
 
             offer_id = row[0].strip()             # № оффера (A)
             category = row[1].strip()             # Категория (B)
-            link = row[2].strip()                 # Ссылка (C)
             name = row[3].strip()                 # Название (D)
+            link = row[8].strip()                 # Ссылка (C)
+            price = row[9].strip()                # Заплатим
+            text = row[10].strip()                # Требуемые действия (подробно)
             code = row[11].strip() if len(row) > 11 else ""  # Код (L)
 
             if not category:
@@ -475,6 +477,8 @@ async def load_offers_from_sheet():
                 "category": category,
                 "name": name,
                 "partner_link": link,
+                "text": text,
+                "price": price,
                 "code": code,
                 "row": idx
             }
@@ -633,7 +637,7 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
     buttons: list[list[InlineKeyboardButton]] = []
 
-    # кнопки офферов
+    # кнопки офферов !!!!!!!!
     for off in offers_page:
         text = f"{off['id']}. {off['name']}"
         buttons.append([InlineKeyboardButton(text=text, callback_data=f"offer_select:{off['id']}")])
@@ -848,7 +852,7 @@ async def offer_select_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
     ])
-    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, который указан рядом с оффером (в таблице).\n\nЕсли хочешь выйти — нажми ❌ Отмена или напиши 'отмена'."
+    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора, или нажми ❌ Отмена для возвращения.\n\nВы получите {offer['price']} за выполнение.\n\nИнструкция по офферу:\n{offer['text']}"
     await edit_user_menu(callback.from_user.id, prompt, kb)
     await callback.answer()
 
