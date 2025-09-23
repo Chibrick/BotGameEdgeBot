@@ -57,7 +57,7 @@ PAGE_SIZE = 5
 
 # Константы кол-во колонок и индексы (A..Q)
 NUM_COLUMNS = 40
-LAST_COLUMNS = "BK"
+# LAST_COLUMNS = "BK"
 IDX_CLIENT_NO = 1   # A
 IDX_USER_ID = 2     # B
 IDX_USERNAME = 3    # C
@@ -234,7 +234,7 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
                     if offer not in row_vals[IDX_OFFER_NO - 1]:
                         row_vals[IDX_OFFER_NO - 1] = f"{row_vals[IDX_OFFER_NO - 1]};{offer}"
 
-            range_name = f"A{row_index}:{LAST_COLUMNS}{row_index}"
+            range_name = f"A{row_index}:GG{row_index}"
             await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
             logger.info(f"Обновлена строка {row_index} для user {user_id}")
         else:
@@ -475,7 +475,7 @@ async def mark_offer_taken_for_user(row_index, offer_id):
                 row_vals[col_idx - 1] = "SELECTED"
 
         # обновляем всю строку A..Q
-        range_name = f"A{row_index}:{LAST_COLUMNS}{row_index}"
+        range_name = f"A{row_index}:GG{row_index}"
         await run_in_executor(sheet_clients.update, range_name, [row_vals], {'valueInputOption': 'USER_ENTERED'})
         logger.info(f"Offer {offer_id} marked for row {row_index}")
         return True
@@ -667,8 +667,6 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
     _, offer_id = callback.data.split(":", 1)
     offer = OFFERS_BY_ID[offer_id]
 
-    logger.error(f"offer {offer}") #!!!!!!!!!!!!
-
     if not offer:
         await callback.answer("❌ Оффер не найден")
         return
@@ -859,7 +857,7 @@ async def offer_select_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
     ])
-    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора или нажми ❌ Отмена для возвращения.\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}." #!!!!!!!!!!!!!!!
+    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора или нажми ❌ Отмена для возвращения.\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
     await edit_user_menu(callback.from_user.id, prompt, kb)
     await callback.answer()
 
