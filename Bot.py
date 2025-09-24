@@ -809,7 +809,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("category:"))
 async def category_handler(callback: types.CallbackQuery):
     # проверка регистрации
-    if not await is_registered(message.from_user.id):
+    if not await is_registered(callback.from_user.id):
         await message.answer("❌ Вы не зарегистрированы. Введите /start для начала.")
         return
     
