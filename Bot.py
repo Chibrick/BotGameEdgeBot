@@ -484,6 +484,9 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
     buttons: list[list[InlineKeyboardButton]] = []
 
+    if not await is_registered(callback.from_user.id):
+        await callback.answer("❌ Сначала зарегистрируйтесь через /start")
+        return
     # кнопки офферов
     for off in offers_page:
         text = f"{off['id']}. {off['name']}"
@@ -624,10 +627,10 @@ async def get_phone(message: types.Message):
         keyboard=[[KeyboardButton(text="📋 Меню")]],
         resize_keyboard=True
     )
-    await message.answer("Теперь Вы в системе! Нажмите 📋 Меню, чтобы открыть каталог.", reply_markup=kb)
+    await message.answer("Теперь Вы в системе! Нажмите 📋 Меню или напишите /Menu, чтобы открыть каталог.", reply_markup=kb)
 
 @dp.message(F.text == "📋 Меню")
-@dp.message(Command("меню"))
+@dp.message(Command("Menu"))
 async def open_menu(message: types.Message):
     # проверка регистрации
     if not await is_registered(message.from_user.id):
@@ -655,6 +658,9 @@ def _build_my_offers_keyboard(offers_page, source: str, page: int, total_pages: 
     Клавиатура для блока 'Мои офферы' (SELECTED / DONE).
     source = "my_offers_in_progress" или "my_offers_done"
     """
+    if not await is_registered(callback.from_user.id):
+        await callback.answer("❌ Сначала зарегистрируйтесь через /start")
+        return
     rows = []
     for offer in offers_page:
         text = f"{offer['id']}. {offer['name']}"
