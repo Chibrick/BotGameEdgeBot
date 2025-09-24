@@ -484,9 +484,6 @@ def _build_offers_keyboard(offers_page, category, page, total_pages):
     """Создаёт клавиатуру для списка офферов (offers_page — список offer_obj)."""
     buttons: list[list[InlineKeyboardButton]] = []
 
-    if not await is_registered(callback.from_user.id):
-        await callback.answer("❌ Сначала зарегистрируйтесь через /start")
-        return
     # кнопки офферов
     for off in offers_page:
         text = f"{off['id']}. {off['name']}"
@@ -658,9 +655,6 @@ def _build_my_offers_keyboard(offers_page, source: str, page: int, total_pages: 
     Клавиатура для блока 'Мои офферы' (SELECTED / DONE).
     source = "my_offers_in_progress" или "my_offers_done"
     """
-    if not await is_registered(callback.from_user.id):
-        await callback.answer("❌ Сначала зарегистрируйтесь через /start")
-        return
     rows = []
     for offer in offers_page:
         text = f"{offer['id']}. {offer['name']}"
@@ -814,9 +808,14 @@ async def show_my_offers_done(callback: types.CallbackQuery):
 # обработчик выбора категории
 @dp.callback_query(F.data.startswith("category:"))
 async def category_handler(callback: types.CallbackQuery):
+    # проверка регистрации
+    if not await is_registered(message.from_user.id):
+        await message.answer("❌ Вы не зарегистрированы. Введите /start для начала.")
+        return
+    
     # category:Дебетовые карты
     _, category = callback.data.split(":", 1)
-    await edit_user_menu(callback.from_user.id, f"✅ Ты выбрал категорию: {category}. Подождите...", None)
+    await edit_user_menu(callback.from_user.id, f"✅ Вы выбрали категорию: {category}. Подождите...", None)
     await show_offers_page_for_user(callback.from_user.id, category, page=1)
     await callback.answer()
 
@@ -989,6 +988,11 @@ async def main():
     ok = await init_google_sheets()
     if not ok:
         logger.error("Не удалось инициализировать Google Sheets. Бот будет работать, но без записи.")
+    else:
+        # Автозагрузка офферов и карты колонок
+        await load_offers_from_sheet()
+        await build_client_offer_col_map()
+
     # старт веб-сервера для Render healthcheck
     asyncio.create_task(start_web_server())
 
