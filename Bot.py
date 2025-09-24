@@ -172,7 +172,6 @@ async def init_google_sheets():
         logger.error(traceback.format_exc())
         return False
 
-
 def _pad_row(row, length):
     """Pad list to exact length"""
     if row is None:
@@ -183,7 +182,6 @@ def _pad_row(row, length):
     else:
         row = row[:length]
     return row
-
 
 async def find_user_row_by_id(user_id: str):
     """Ищет строку (номер) по user_id в колонке B. Возвращает None если не найдено"""
@@ -199,7 +197,6 @@ async def find_user_row_by_id(user_id: str):
     except Exception as e:
         logger.error(f"find_user_row_by_id error: {e}")
         return None
-
 
 async def update_client(user: types.User, phone="", location="", offer="", status="", mark="", offer_no=""):
     """
@@ -263,7 +260,6 @@ async def update_client(user: types.User, phone="", location="", offer="", statu
         logger.error(f"Ошибка при update_client: {e}")
         logger.error(traceback.format_exc())
         return False
-
 
 async def log_event(user: types.User, event_type: str, content: str):
     """Запись в лист 'Логи от бота'"""
@@ -544,10 +540,20 @@ async def show_offers_page_for_user(user_id: int, category: str, page: int = 1):
         info["category"] = category
         info["page"] = page
 
+async def is_registered(user_id: int) -> bool:
+    """Проверяет, зарегистрирован ли пользователь (есть ли номер телефона)."""
+    row_index = await _get_client_row_index(str(user_id))
+    if not row_index:
+        return False
 
-
-
-
+    try:
+        row_vals = await run_in_executor(sheet_clients.row_values, row_index)
+        row_vals = _pad_row(row_vals, NUM_COLUMNS)
+        phone = row_vals[IDX_PHONE - 1].strip()
+        return bool(phone)
+    except Exception as e:
+        logger.error(f"is_registered error: {e}")
+        return False
 
 # === Handlers ===
 
@@ -586,19 +592,19 @@ async def cmd_start(message: types.Message):
     if len(message.text.split()) > 1:
         ref = message.text.split()[1]
 
-    # Регистрируем/обновляем клиента и пишем лог
     await update_client(message.from_user, status="новый", mark=ref)
     await log_event(message.from_user, "START", ref)
 
+    # Кнопка только с телефоном
     kb = ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text="📱 Отправить телефон", request_contact=True)]],
-        resize_keyboard=True
+        resize_keyboard=True,
+        one_time_keyboard=True
     )
     await message.answer(
-        "🔥 Добро пожаловать!\n\nДля продолжения отправь свой номер телефона:",
+        "🔥 Добро пожаловать!\n\nДля продолжения отправьте свой номер телефона:",
         reply_markup=kb
     )
-
 
 @dp.message(F.contact)
 async def get_phone(message: types.Message):
@@ -610,32 +616,39 @@ async def get_phone(message: types.Message):
     await update_client(message.from_user, phone=phone)
     await log_event(message.from_user, "PHONE", phone)
 
-    # Формируем кнопки категорий динамически из OFFERS_BY_CATEGORY (или OFFERS)
+    # убираем старую клавиатуру
+    await message.answer("✅ Данные сохранены!", reply_markup=ReplyKeyboardRemove())
+
+    # закрепляем «Меню»
+    kb = ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text="📋 Меню")]],
+        resize_keyboard=True
+    )
+    await message.answer("Теперь Вы в системе! Нажмите 📋 Меню, чтобы открыть каталог.", reply_markup=kb)
+
+@dp.message(F.text == "📋 Меню")
+@dp.message(Command("меню"))
+async def open_menu(message: types.Message):
+    # проверка регистрации
+    if not await is_registered(message.from_user.id):
+        await message.answer("❌ Вы не зарегистрированы. Введите /start для начала.")
+        return
+
+    # формируем категории
     categories = list(OFFERS_BY_CATEGORY.keys()) if OFFERS_BY_CATEGORY else list(OFFERS.keys())
     if not categories:
-        # если ещё нет офферов — просто уведомим
-        msg = await message.answer("✅ Отлично! Данные сохранены.\n\nНа данный момент офферы не загружены. Попробуй позже.")
+        await message.answer("❗ Офферы пока не загружены.")
         return
 
     category_buttons = [
         [InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")]
         for cat in categories
     ]
-
     category_buttons.append([InlineKeyboardButton(text="📋 Мои офферы", callback_data="my_offers")])
 
     keyboard = InlineKeyboardMarkup(inline_keyboard=category_buttons)
-    msg = await message.answer(
-        "✅ Отлично! Данные сохранены.\n\nТеперь ты в системе! Выбери категорию оффера: 👇",
-        reply_markup=keyboard
-    )
-
-    # Сохраняем это сообщение как "меню" пользователя
+    msg = await message.answer("Выберите категорию оффера: 👇", reply_markup=keyboard)
     await store_menu_message_for_user(message.from_user.id, msg)
-
-
-
-
 
 def _build_my_offers_keyboard(offers_page, source: str, page: int, total_pages: int):
     """
@@ -688,8 +701,6 @@ async def my_offer_info_handler(callback: types.CallbackQuery):
     await edit_user_menu(callback.from_user.id, text, kb)
     await callback.answer()
 
-
-
 @dp.callback_query(F.data == "my_offers")
 async def show_my_offers_menu(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -699,7 +710,7 @@ async def show_my_offers_menu(callback: types.CallbackQuery):
     ])
     await edit_user_menu(
         callback.from_user.id,
-        "📋 <b>Мои офферы</b>\n\nЭто твои офферы, можешь посмотреть подробную информацию:",
+        "📋 <b>Мои офферы</b>\n\nЭто ваши офферы, можете посмотреть подробную информацию:",
         kb
     )
     await callback.answer()
@@ -778,7 +789,7 @@ async def show_my_offers_done(callback: types.CallbackQuery):
                 [InlineKeyboardButton(text="⬅️ Назад", callback_data="my_offers")]
             ]
         )
-        await edit_user_menu(callback.from_user.id, "✅ У тебя нет выполненных офферов.", kb)
+        await edit_user_menu(callback.from_user.id, "✅ У вас нет выполненных офферов.", kb)
         await callback.answer()
         return
 
@@ -793,16 +804,6 @@ async def show_my_offers_done(callback: types.CallbackQuery):
         kb
     )
     await callback.answer()
-
-
-
-
-
-
-
-
-
-
 
 # обработчик выбора категории
 @dp.callback_query(F.data.startswith("category:"))
@@ -865,7 +866,7 @@ async def offer_select_handler(callback: types.CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
     ])
-    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведи код, полученный от оператора или нажми ❌ Отмена для возвращения.\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
+    prompt = f"Вы выбрали оффер {offer_id} — {offer['name']}\n\nВведите код, полученный от оператора или нажми ❌ Отмена для возвращения.\n\nВы получите {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
     await edit_user_menu(callback.from_user.id, prompt, kb)
     await callback.answer()
 
@@ -883,16 +884,6 @@ async def cancel_pending_cb(callback: types.CallbackQuery):
         kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text=f"📂 {cat}", callback_data=f"category:{cat}")] for cat in categories])
         await edit_user_menu(user_id, "Выберите категорию оффера:", kb)
     await callback.answer("Отменено")
-
-
-
-
-
-
-
-
-
-
 
 @dp.message()
 async def handle_messages_for_code(message: types.Message):
@@ -922,7 +913,7 @@ async def handle_messages_for_code(message: types.Message):
     offer_id = PENDING_OFFER.get(user_id)
     offer = OFFERS_BY_ID.get(offer_id)
     if not offer:
-        await message.answer("Ошибка: оффер не найден. Попробуй выбрать снова.")
+        await message.answer("Ошибка: оффер не найден. Попробуйте выбрать снова.")
         PENDING_OFFER.pop(user_id, None)
         return
 
@@ -933,7 +924,7 @@ async def handle_messages_for_code(message: types.Message):
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="❌ Отмена", callback_data="cancel_pending")]
         ])
-        await edit_user_menu(user_id, f"Код неверный. Попробуй ещё раз или нажми ❌ Отмена.\n\nОффер: {offer_id} — {offer['name']}", kb)
+        await edit_user_menu(user_id, f"Код неверный. Попробуйте ещё раз или нажмите ❌ Отмена.\n\nОффер: {offer_id} — {offer['name']}", kb)
         await log_event(message.from_user, "OFFER_CODE_INCORRECT", f"{offer_id} / {entered}")
         return
 
@@ -955,17 +946,10 @@ async def handle_messages_for_code(message: types.Message):
         [InlineKeyboardButton(text="◀️ Вернуться к офферам", callback_data=f"offers_page:{offer['category']}:1")],
         [InlineKeyboardButton(text="⬅️ К категориям", callback_data="back_to_categories")]
     ])
-    text_ok = f"✅ Код верный! Вот ссылка на оффер:\n{offer['link']}\n\nТы получишь {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
+    text_ok = f"✅ Код верный! Вот ссылка на оффер:\n{offer['link']}\n\nВы получите {offer['price']} за выполнение.\n\nИнструкция для выполнения:\n{offer['text']}."
     # очистим pending
     PENDING_OFFER.pop(user_id, None)
     await edit_user_menu(user_id, text_ok, kb)
-
-
-
-
-
-
-
 
 @dp.message()
 async def fallback_message_handler(message: types.Message):
