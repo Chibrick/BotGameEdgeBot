@@ -810,9 +810,9 @@ async def show_my_offers_done(callback: types.CallbackQuery):
 async def category_handler(callback: types.CallbackQuery):
     # проверка регистрации
     if not await is_registered(callback.from_user.id):
-        await message.answer("❌ Вы не зарегистрированы. Введите /start для начала.")
+        await callback.answer("❌ Вы не зарегистрированы. Сначала зарегистрируйтесь через /start", show_alert=True)
         return
-    
+
     # category:Дебетовые карты
     _, category = callback.data.split(":", 1)
     await edit_user_menu(callback.from_user.id, f"✅ Вы выбрали категорию: {category}. Подождите...", None)
